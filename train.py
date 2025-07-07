@@ -16,37 +16,7 @@ from . import criterion
 from . import serialize
 
 torch = utils.LazyImport("torch")
-tensorboard = utils.LazyImport("torch.utils.tensorboard")
-
-def make_config (args):
-    cfg = {'batch_size' : 16,
-           'criterion' : {'name' : 'mixed'},
-           'optimizer' : {'name' : 'RAdam',
-                          'lr' : 1e-3},
-           'scheduler' : {'name' : 'ReduceLROnPlateau',
-                          'mode' : 'min',
-                          'factor' : 2./(1+math.sqrt(5)),
-                          'patience' : 3,
-                          'min_lr' : 1e-4},
-                          
-           'n_epochs' : 50,
-           'train_prop' : 0.9,
-           'n_workers' : 0,
-           'verbose' : True,
-           'repeat_train' : 1,
-           'repeat_valid' : 1,
-           'with_restarts' : True,
-           'shuffle' : True,
-           'recurrent' : False,
-           'maximize' : False,
-           'attributes' : {}}
-    for k,v in args.items():
-        if type(cfg[k]) is dict:
-            cfg[k].update(v)
-        else:
-            cfg[k] = v
-    return SimpleNamespace(**cfg)
-        
+tensorboard = utils.LazyImport("torch.utils.tensorboard")        
         
 class TrainBoiler ():    
     def __init__ (self, name, config,
@@ -75,6 +45,36 @@ class TrainBoiler ():
 
         self.state.start_moment = time.time()
         self.train_loop(dataset, hooks)
+
+    @staticmethod
+    def make_config (args):
+        cfg = {'batch_size' : 16,
+               'criterion' : {'name' : 'mixed'},
+               'optimizer' : {'name' : 'RAdam',
+                              'lr' : 1e-3},
+               'scheduler' : {'name' : 'ReduceLROnPlateau',
+                              'mode' : 'min',
+                              'factor' : 2./(1+math.sqrt(5)),
+                              'patience' : 3,
+                              'min_lr' : 1e-4},
+               'n_epochs' : 50,
+               'train_prop' : 0.9,
+               'n_workers' : 0,
+               'verbose' : True,
+               'repeat_train' : 1,
+               'repeat_valid' : 1,
+               'with_restarts' : True,
+               'shuffle' : True,
+               'recurrent' : False,
+               'maximize' : False,
+               'attributes' : {}}
+        for k,v in args.items():
+            if type(cfg[k]) is dict:
+                cfg[k].update(v)
+            else:
+                cfg[k] = v
+        return SimpleNamespace(**cfg)
+
         
     def train_loop (self, dataset, hooks):
         train_loader, valid_loader = self.make_loaders(dataset)
