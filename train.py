@@ -40,12 +40,18 @@ def make_config (args):
            'recurrent' : False,
            'maximize' : False,
            'attributes' : {}}
-    cfg.update(args) # TODO: parse dict inside dict
+    for k,v in args.items():
+        if type(cfg[k]) is dict:
+            cfg[k].update(v)
+        else:
+            cfg[k] = v
     return SimpleNamespace(**cfg)
         
         
 class TrainBoiler ():    
-    def __init__ (self, name, dataset, net, device,
+    def __init__ (self, name, config,
+                  dataset, net, device,
+                  start_from_checkpoint=None,
                   root='/tmp/torchboiler', hooks={},
                   caller_globals={},
                   **train_params):
@@ -53,9 +59,13 @@ class TrainBoiler ():
         utils.set_seed(42)
         self.device = device
         self.net = net
+        if start_from_checkpoint is not None:
+            self.load_net_from_checkpoint(
+                start_from_checkpoint)
+
         self.net.to(device)
 
-        self.cfg = make_config(train_params)
+        self.cfg = config
         self.init_state()
         self.init_optimizer()
         self.init_criterion(dataset, caller_globals)
@@ -138,7 +148,7 @@ class TrainBoiler ():
                 report_loss = float(
                     self.criterion(yp, y,
                                    weights=w,
-                                   unscaled=True))
+                                   unscaled=True).detach())
                 
                 t.update(round(np.sqrt(report_loss), 5))
                 total_loss += report_loss*len(y)
@@ -222,16 +232,16 @@ class TrainBoiler ():
                 self.state.restart_done = True
                 status_msg = "Restarted"
                 
-            if ( self.state.early_stop_counter >
-                 early_ratio*self.cfg.n_epochs ): # early stop criterion
-                self.state.early_stopped = True
-                status_msg = "Early stopped"
-            elif status_msg == "":
-                epochs_left = int(early_ratio*self.cfg.n_epochs -
-                                  self.state.early_stop_counter)
-                status_msg = f"{epochs_left} epochs till early stop"
-
-            self.state.early_stop_counter += 1
+        if ( self.state.early_stop_counter >
+             early_ratio*self.cfg.n_epochs ): # early stop criterion
+            self.state.early_stopped = True
+            status_msg = "Early stopped"
+        elif status_msg == "":
+            epochs_left = int(early_ratio*self.cfg.n_epochs -
+                              self.state.early_stop_counter)
+            status_msg = f"{epochs_left} epochs till early stop"
+            
+        self.state.early_stop_counter += 1
         return status_msg
             
     def make_loaders (self, dataset):
@@ -334,3 +344,7 @@ class TrainBoiler ():
         self.scheduler.load_state_dict(ckpt['scheduler'])
         self.criterion.load_state_dict(ckpt['criterion'])
         del ckpt
+
+    def load_net_from_checkpoint (self, checkpoint_file):
+        ckpt = serialize.unpack(checkpoint_file)
+        self.net.load_state_dict(ckpt['net'])

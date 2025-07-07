@@ -1,6 +1,7 @@
+import numpy as np
 from .. import utils
 
-utils.LazyImport("torch")
+torch = utils.LazyImport("torch")
 try:
     cross_entropy_loss = torch.nn.BCEWithLogitsLoss(reduction='none')
 except:
@@ -33,7 +34,7 @@ class Criterion ():
             dataset,
             'class_weights',
             ignore_missing=True)
-        self.class_weights = np.array(class_weights).to(device)
+        self.class_weights = torch.tensor(class_weights).to(device)
         self.loss = torch.nn.CrossEntropyLoss(
             weight=self.class_weights,
             reduction='none',
