@@ -23,8 +23,7 @@ class TrainBoiler ():
                   dataset, net, device,
                   start_from_checkpoint=None,
                   root='/tmp/torchboiler', hooks={},
-                  caller_globals={},
-                  **train_params):
+                  caller_globals={}):
         self.name = name
         utils.set_seed(42)
         self.device = device
