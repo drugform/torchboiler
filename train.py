@@ -70,6 +70,7 @@ class TrainBoiler ():
         for k,v in args.items():
             if type(cfg[k]) is dict:
                 cfg[k].update(v)
+                cfg[k] = SimpleNamespace(**cfg[k])
             else:
                 cfg[k] = v
         return SimpleNamespace(**cfg)
