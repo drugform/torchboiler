@@ -285,20 +285,20 @@ class TrainBoiler ():
         self.state.log = []
 
     def init_optimizer (self):
-        opt_cfg = deepcopy(self.cfg.optimizer)
+        opt_cfg = deepcopy(self.cfg.optimizer.__dict__)
         opt_name = opt_cfg.pop('name')
         opt = torch.optim.__getattribute__(opt_name)
         self.optimizer = opt(params=self.net.parameters(),
                              **opt_cfg)
 
-        sch_cfg = deepcopy(self.cfg.scheduler)
+        sch_cfg = deepcopy(self.cfg.scheduler.__dict__)
         sch_name = sch_cfg.pop('name')
         sch = torch.optim.lr_scheduler.__getattribute__(sch_name)
         self.scheduler = sch(optimizer=self.optimizer,
                              **sch_cfg)
 
     def init_criterion (self, dataset, caller_globals):
-        crit_cfg = deepcopy(self.cfg.criterion)
+        crit_cfg = deepcopy(self.cfg.criterion.__dict__)
         crit_name = crit_cfg.pop('name')
 
         crit_module = caller_globals.get(crit_name)
