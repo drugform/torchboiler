@@ -11,12 +11,11 @@ class ExportBoiler ():
     def __init__ (self, model_path, net=None):
         self.model_path = model_path
         self.dict = serialize.unpack(model_path)
-
+        self.sample_input = self.dict['sample_input']
         if self.dict['format'] == 'torch':
             self.net = net.cpu()
             self.net.load_state_dict(self.dict['net'])
-        elif self.dict['format'] in ['torch.trace',
-                                    'torch.script']:
+        elif self.dict['format'] == 'torchscript':
             assert net is None, 'Net arg not required for {format} format'
             self.net = self.dict['net']
         else:
@@ -25,53 +24,84 @@ class ExportBoiler ():
     def to_torchscript (self, trace=False):
         dict_ = deepcopy(self.dict)
         self.net.eval()
+        dict_['format'] = 'torchscript'
+        out_file = os.path.splitext(self.model_path)[0]+'.ts.bin'
         if trace:
-            dict_['format'] = 'torchtrace'
-            sample_input = torch.from_numpy(
-                dict_['sample_input'])
-            torch_input = sample_input
-            #with torch.no_grad():
+            torch_input = utils.convert_sample(
+                self.sample_input, 'cpu')
             model = torch.jit.trace(self.net, torch_input)
-            out_file = os.path.splitext(self.model_path)[0]+'.tt.bin'
         else:
-            dict_['format'] = 'torchscript'
             model = torch.jit.script(self.net)
-            out_file = os.path.splitext(self.model_path)[0]+'.ts.bin'
         
         dict_['net'] = model
         serialize.pack(dict_, out_file)
-
-    def to_onnx (self, dynamo=True, dynamic_axes=None):
+        
+    def to_onnx (self, dynamic_axes=None):
         dict_ = deepcopy(self.dict)
         self.net.eval()
-        sample_input = torch.from_numpy(
-            dict_['sample_input'])
+        sample_input = utils.convert_sample(
+            self.sample_input, 'cpu')
         out_file = os.path.splitext(self.model_path)[0]+'.onnx.bin'
-        onnx_tmp_file = "tmp.onnx" # use tmpfile
+        onnx_tmp_file = "tmp.onnx" # TODO: use tmpfile #
+        # or use `artifacts_dir` arg in torch.onnx.export
 
-        if dynamic_axes is None:
-            dynamic_axes = {'input' : [0]}
-
-        # if dynamo=True, param name is dynamic_shapes,
-        # not dynaic_axes
+        onnx_args = {'model' : self.net,
+                     'dynamo' : True,
+                     'report' : True,
+                     'artifacts_dir' : os.path.dirname(self.model_path)}
+        
+        if type(sample_input) is dict:
+            onnx_args['kwargs'] = sample_input
+        else:
+            onnx_args['args'] = sample_input
+        
+        if type(dynamic_axes) is str:
+            onnx_args.update(
+                onnx_format_dynamic_axes(
+                    self.net, sample_input, 'auto_batch'))
             
-        onnx_program = torch.onnx.export(
-            self.net,
-            (sample_input,),
-            onnx_tmp_file,
-            dynamic_axes=dynamic_axes,
-            dynamo=dynamo)
 
-        if dynamo:
-            onnx_program.optimize()
-            onnx_program.save(onnx_tmp_file)
+        onnx_program = torch.onnx.export(**onnx_args)
+        onnx_program.optimize()
+        onnx_program.save(onnx_tmp_file)
 
         with open(onnx_tmp_file, 'rb') as fp:
             onnx_bytes = fp.read()
 
-        os.remove(onnx_tmp_file)
         dict_['format'] = 'onnx'
         dict_['net'] = onnx_bytes
         serialize.pack(dict_, out_file)
+        os.remove(onnx_tmp_file)
 
+def onnx_format_dynamic_axes (net, sample_input, mode):
+    if mode == 'auto_batch':
+        sample_output = utils.forward(net, sample_input)
+        # TODO: let sample_output be dict
         
+        if type(sample_input) is dict:
+            onnx_program = torch.onnx.export(
+                model=net,
+                kwargs=sample_input,
+                dynamo=True)
+        else:
+            onnx_program = torch.onnx.export(
+                model=net,
+                args=sample_input,
+                dynamo=True)
+            
+        input_names = [inp.name for inp
+                       in onnx_program.model.graph.inputs]
+        
+        if type(sample_output) is not tuple:
+            sample_output = (sample_output,)
+        
+        output_names = [f'output_{i}' for i
+                        in range(len(sample_output))]
+        
+        dynamic_axes = {k:[0] for k
+                        in input_names+output_names}
+        return {'input_names' : input_names,
+                'output_names' : output_names,
+                'dynamic_axes' : dynamic_axes}
+    else:
+        raise Exception(f'Unknown dynamic axes mode: {mode}')

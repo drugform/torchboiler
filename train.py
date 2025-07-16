@@ -14,6 +14,7 @@ from . import utils
 from .utils import fprint
 from . import criterion
 from . import serialize
+from . import collator
 
 torch = utils.LazyImport("torch")
 tensorboard = utils.LazyImport("torch.utils.tensorboard")        
@@ -38,6 +39,7 @@ class TrainBoiler ():
         self.init_state()
         self.init_optimizer()
         self.init_criterion(dataset, caller_globals)
+        self.init_collator(caller_globals)
         self.init_workdir(root)
         self.log_writer = tensorboard.SummaryWriter(
             log_dir=self.workdir)
@@ -49,6 +51,8 @@ class TrainBoiler ():
     def make_config (args):
         cfg = {'batch_size' : 16,
                'criterion' : {'name' : 'mixed'},
+               'collator'  : {'name' : 'default',
+                              'train' : True},
                'optimizer' : {'name' : 'RAdam',
                               'lr' : 1e-3},
                'scheduler' : {'name' : 'ReduceLROnPlateau',
@@ -67,6 +71,7 @@ class TrainBoiler ():
                'recurrent' : False,
                'maximize' : False,
                'attributes' : {}}
+        
         for k,v in args.items():
             if type(cfg[k]) is dict:
                 cfg[k].update(v)
@@ -76,7 +81,6 @@ class TrainBoiler ():
             if type(cfg[k]) is dict:
                 cfg[k] = SimpleNamespace(**cfg[k])
         return SimpleNamespace(**cfg)
-
         
     def train_loop (self, dataset, hooks):
         train_loader, valid_loader = self.make_loaders(dataset)
@@ -170,6 +174,10 @@ class TrainBoiler ():
                    f" lr: {self.get_rate():.5f} / {status_msg}")
         fprint(log_msg)
         self.state.log.append(log_msg)
+        with open(os.path.join(self.workdir,
+                               'train_log.txt'),
+                  'a') as fp:
+            fp.write(log_msg+'\n')
 
     def get_rate (self):
         return [p['lr'] for p
@@ -197,12 +205,18 @@ class TrainBoiler ():
                 fprint('Checkpoint is already finalized')
                 return
             else:
-                fprint('Resuming training from latest checkpoint')
+                log_msg = 'Resuming training from latest checkpoint'
+                fprint(log_msg)
+                self.state.log.append(log_msg)
+                with open(os.path.join(self.workdir,
+                                       'train_log.txt'),
+                          'a') as fp:
+                    fp.write(log_msg+'\n')
 
         else:
             fprint(f'Removing workdir {workdir} with no `checkpoint.json`')
             shutil.rmtree(workdir)
-            os.mkdir(workdir)            
+            os.mkdir(workdir)
 
     def check_progress (self, value, maximize=False):
         restart_ratio = 0.2
@@ -257,24 +271,27 @@ class TrainBoiler ():
             ids = np.arange(len(dataset))
             train_ds = torch.utils.data.Subset(dataset, ids[ :train_split])
             valid_ds = torch.utils.data.Subset(dataset, ids[train_split: ])
-            
-        collate_fn = utils.dataset_attr(
-            dataset, 'collate_fn', ignore_missing=True)
+
+        
         loader_shuffle = self.cfg.recurrent
         train_loader = torch.utils.data.DataLoader(
             train_ds,
             batch_size = self.cfg.batch_size,
             shuffle = loader_shuffle,
             num_workers = self.cfg.n_workers,
+            persistent_workers=True if self.cfg.n_workers > 0 else False,
             pin_memory = True,
-            collate_fn = collate_fn)
+            prefetch_factor=1 if self.cfg.n_workers > 0 else None,
+            collate_fn = self.collator)
         valid_loader = torch.utils.data.DataLoader(
             valid_ds,
             batch_size = self.cfg.batch_size,
             shuffle = False,
             num_workers = self.cfg.n_workers,
             pin_memory = True,
-            collate_fn = collate_fn)
+            prefetch_factor=1 if self.cfg.n_workers > 0 else None,
+            persistent_workers=True if self.cfg.n_workers > 0 else False,
+            collate_fn = self.collator)
         return train_loader, valid_loader
 
     def init_state (self):
@@ -311,11 +328,22 @@ class TrainBoiler ():
         self.criterion = crit_module.Criterion(
             dataset, self.device, **crit_cfg)
         
+    def init_collator (self, caller_globals):
+        col_cfg = deepcopy(self.cfg.collator.__dict__)
+        col_name = col_cfg.pop('name')
+        
+        col_module = caller_globals.get(col_name)
+        if col_module is None:
+            col_module = getattr(globals()['collator'],
+                                  col_name)
+
+        self.collator = col_module.Collator(**col_cfg)
         
     def set_sample_input (self, sample_input):
         # copy logic from utils.forward
         if not hasattr(self, 'sample_input'):
-            self.sample_input = sample_input.cpu().detach().numpy()
+            self.sample_input = utils.convert_sample(
+                sample_input, 'numpy')                
 
     def save_checkpoint (self):
         ckpt = {'format' : 'torch',

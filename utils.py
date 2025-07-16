@@ -81,41 +81,69 @@ def get_regression_flags (Y):
             len((Y[:,i][Y[:,i].nonzero()]-1).nonzero()[0]) > 0)
     return regression 
 
-def input2device (item, device):
-    # currently torch only
-    if type(item) == torch.Tensor:
-        bs = len(item)
-        return item.to(device), bs
-    elif type(item) in (list, tuple):
-        bs = len(item[0])
-        return [elem.to(device) for elem in item], bs
-    elif type(item) == dict:
-        bs = len(next(iter(item.values())))
-        return {k:v.to(device) for k,v in item.items()}, bs
+def convert_sample (sample, to):
+    name = type(sample).__name__
+    if name in ['Tensor', 'ndarray']:
+        return convert_item(sample, to)
+    elif name in ['list', 'tuple']:
+        return [convert_item(item, to)
+                for item in sample]
+    elif name in ['dict']:
+        return {k:convert_item(v, to)
+                for k,v in item.items()}
     else:
-        raise Exception(f'Unsupported batch item type: {type(item)}')
+        Exception(f'Unsupported batch item type: {name}')
 
-def parse_batch (batch, device):
-    # currently torch only
-    inpt,bs = input2device(batch[0], device)
-    tgt,_ = input2device(batch[-1], device)
- 
-    if len(batch) == 2:
-        w = torch.ones(bs).to(device)
-    elif len(batch) == 3:
-        w = batch[1].to(device)
+def convert_item (item, to):
+    name = type(item).__name__
+    if to == 'numpy':
+        if name == 'Tensor':
+            return item.detach().cpu().numpy()
+        elif name == 'ndarray':
+            return item
+        else:
+            raise Exception(f'Item type must be torch.Tensor or np.ndarray. Got {name}')
+    elif to == 'cpu':
+        if name == 'Tensor':
+            return item.detach().cpu()
+        elif name == 'ndarray':
+            return torch.from_numpy(item)
+        else:
+            raise Exception(f'Item type must be torch.Tensor or np.ndarray. Got {name}')
+    elif to.startswith('cuda'):
+        if name == 'Tensor':
+            return item.to(to)
+        elif name == 'ndarray':
+            return torch.from_numpy(item).to(to)
+        else:
+            raise Exception(f'Item type must be torch.Tensor or np.ndarray. Got {name}')
     else:
-        raise Exception('batch must have 2 (inpt, tgt) or 3 (inpt, w, tgt) elems')
+        raise Exception(f'Unknown conversion target: {to}. Expecting `numpy`,  `cpu` (torch), `cuda`, `cuda:X`')
+
+def parse_batch (batch, to):
+    inpt = convert_sample(batch[0], to)
+    tgt  = convert_sample(batch[-1], to)
+    name = type(inpt).__name__
+    if name in ['list', 'tuple']:
+        bs = len(inpt[0])
+    elif name in ['dict']:
+        bs = len(next(iter(inpt.values())))
+    else:
+        bs = len(inpt)
+    if len(batch) == 3:
+        w = convert_sample(batch[1], to)
+    else:
+        w = convert_sample(np.ones(bs, np.float32), to)
     return inpt, w, tgt
 
 def forward (net, inpt):
-    # currently torch only
-    if type(inpt) in [torch.Tensor,
-                      np.ndarray]:
+    name = type(inpt).__name__
+    if name in ['Tensor', 'ndarray']:
         return net(inpt)
-    elif type(inpt) in (list, tuple):
+    elif name in ['list', 'tuple']:
         return net(*inpt)
-    elif type(inpt) == dict:
+    elif name in ['dict']:
         return net(**inpt)
     else:
-        raise Exception(f'Unsupported network input type: {type(inpt)}')
+        Exception(f'Unsupported network input type: {name}')
+
