@@ -21,7 +21,7 @@ class ExportBoiler ():
         else:
             raise Exception(f'Expecting a torch model as export source. Got format: {format}')
 
-    def to_torchscript (self, trace=False):
+    def to_torchscript (self, trace=False, keep_sample_input=False):
         dict_ = deepcopy(self.dict)
         self.net.eval()
         dict_['format'] = 'torchscript'
@@ -34,9 +34,11 @@ class ExportBoiler ():
             model = torch.jit.script(self.net)
         
         dict_['net'] = model
+        if not keep_sample_input:
+            del dict_['sample_input']
         serialize.pack(dict_, out_file)
         
-    def to_onnx (self, dynamic_axes=None):
+    def to_onnx (self, dynamic_axes=None, keep_sample_input=False):
         dict_ = deepcopy(self.dict)
         self.net.eval()
         sample_input = utils.convert_sample(
@@ -70,6 +72,8 @@ class ExportBoiler ():
 
         dict_['format'] = 'onnx'
         dict_['net'] = onnx_bytes
+        if not keep_sample_input:
+            del dict_['sample_input']
         serialize.pack(dict_, out_file)
         os.remove(onnx_tmp_file)
 

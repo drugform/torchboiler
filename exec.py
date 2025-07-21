@@ -55,7 +55,8 @@ class ExecBoiler ():
     def __call__ (self, input_):
         output = self.runner(input_)
         return self.criterion.postproc(output)
-
+        
+    
 ### load
     
 def load_net_torch (ckpt, device, net):
@@ -74,6 +75,8 @@ def load_net_onnx (ckpt, device, backend=None):
     if backend is None:
         if device == 'cpu':
             provider = "CPUExecutionProvider"
+        elif device == 'cuda':
+            provider = "CUDAExecutionProvider"
         else:
             device_id = int(device.split('cuda:')[1])
             provider = ("CUDAExecutionProvider",

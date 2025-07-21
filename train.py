@@ -272,8 +272,10 @@ class TrainBoiler ():
             train_ds = torch.utils.data.Subset(dataset, ids[ :train_split])
             valid_ds = torch.utils.data.Subset(dataset, ids[train_split: ])
 
-        
         loader_shuffle = self.cfg.recurrent
+        collate_fn = utils.dataset_attr(
+            dataset, 'collate_fn', ignore_missing=True)
+        
         train_loader = torch.utils.data.DataLoader(
             train_ds,
             batch_size = self.cfg.batch_size,
@@ -282,7 +284,7 @@ class TrainBoiler ():
             persistent_workers=True if self.cfg.n_workers > 0 else False,
             pin_memory = True,
             prefetch_factor=1 if self.cfg.n_workers > 0 else None,
-            collate_fn = self.collator)
+            collate_fn = collate_fn or self.collator)
         valid_loader = torch.utils.data.DataLoader(
             valid_ds,
             batch_size = self.cfg.batch_size,
@@ -291,7 +293,7 @@ class TrainBoiler ():
             pin_memory = True,
             prefetch_factor=1 if self.cfg.n_workers > 0 else None,
             persistent_workers=True if self.cfg.n_workers > 0 else False,
-            collate_fn = self.collator)
+            collate_fn = collate_fn or self.collator)
         return train_loader, valid_loader
 
     def init_state (self):
