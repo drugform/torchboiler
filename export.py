@@ -21,6 +21,12 @@ class ExportBoiler ():
         else:
             raise Exception(f'Expecting a torch model as export source. Got format: {format}')
 
+    def __call__ (self, name, **params):
+        if name == 'torchscript':
+            self.to_torchscript(**params)
+        elif name == 'onnx':
+            self.to_onnx(**params)
+        
     def to_torchscript (self, trace=False, keep_sample_input=False):
         dict_ = deepcopy(self.dict)
         self.net.eval()
