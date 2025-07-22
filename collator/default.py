@@ -33,7 +33,20 @@ class Collator ():
         self.collate_to = 'numpy'
         return self
     """
-        
+    def get_dtype (self, array):
+        # efficiency nightmare, requires rework
+        name = type(array).__name__
+        if name == 'Tensor':
+            if self.collate_to == 'torch':
+                return array.dtype
+            else: # torch -> numpy 
+                return array.numpy().dtype
+        if name == 'ndarray':
+            if self.collate_to == 'numpy':
+                return array.dtype
+            else: # numpy -> torch 
+                return torch.from_numpy().dtype
+
     def stack_fn (self, samples):
         if self.collate_to == 'torch':
             zeros = torch.zeros
@@ -48,7 +61,9 @@ class Collator ():
 
         if not self.allow_padding:
             return stack(samples)
-            
+
+
+        
         lens = [s.shape[0] for s in samples]
         if len(np.unique(lens)) == 1: # no padding required
             return stack(samples)
