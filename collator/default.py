@@ -63,6 +63,8 @@ class Collator ():
             return stack(samples)
 
 
+        if len(s.shape) == 0:
+            return stack(samples)
         
         lens = [s.shape[0] for s in samples]
         if len(np.unique(lens)) == 1: # no padding required
