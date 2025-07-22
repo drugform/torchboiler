@@ -63,7 +63,7 @@ class Collator ():
             return stack(samples)
 
 
-        if len(s.shape) == 0:
+        if len(samples[0].shape) == 0:
             return stack(samples)
         
         lens = [s.shape[0] for s in samples]
@@ -106,8 +106,12 @@ class Collator ():
             return (self.collate_item(inputs),
                     self.collate_item(targets))
         else:
-            weights = [np.array(s[1], np.float32)
-                       for s in samples]
+            if self.collate_to == 'numpy':
+                weights = [np.array(s[1], np.float32)
+                           for s in samples]
+            else:
+                weights = [torch.tensor(s[1], torch.float32)
+                           for s in samples]
             return (self.collate_item(inputs),
                     self.collate_item(weights),
                     self.collate_item(targets))
