@@ -43,6 +43,7 @@ class ExportBoiler ():
         if not keep_sample_input:
             del dict_['sample_input']
         serialize.pack(dict_, out_file)
+        return out_file
         
     def to_onnx (self, dynamic_axes=None, keep_sample_input=False):
         dict_ = deepcopy(self.dict)
@@ -67,7 +68,6 @@ class ExportBoiler ():
             onnx_args.update(
                 onnx_format_dynamic_axes(
                     self.net, sample_input, 'auto_batch'))
-            
 
         onnx_program = torch.onnx.export(**onnx_args)
         onnx_program.optimize()
@@ -82,6 +82,7 @@ class ExportBoiler ():
             del dict_['sample_input']
         serialize.pack(dict_, out_file)
         os.remove(onnx_tmp_file)
+        return out_file
 
 def onnx_format_dynamic_axes (net, sample_input, mode):
     if mode == 'auto_batch':
