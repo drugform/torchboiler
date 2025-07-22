@@ -45,7 +45,7 @@ class Collator ():
             if self.collate_to == 'numpy':
                 return array.dtype
             else: # numpy -> torch 
-                return torch.from_numpy().dtype
+                return torch.from_numpy(array).dtype
 
     def stack_fn (self, samples):
         if self.collate_to == 'torch':
@@ -72,7 +72,7 @@ class Collator ():
         rest_dims = samples[0].shape[1:]
         dims = [len(samples), maxlen] + list(rest_dims)
             
-        packed = zeros(dims, dtype=samples[0].dtype)
+        packed = zeros(dims, dtype=self.get_dtype(samples[0]))
         for i,s in enumerate(samples):
             s_len = s.shape[0]
             packed[i, :s_len] = tensor(s)
