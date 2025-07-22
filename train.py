@@ -52,7 +52,7 @@ class TrainBoiler ():
         cfg = {'batch_size' : 16,
                'criterion' : {'name' : 'mixed'},
                'collator'  : {'name' : 'default',
-                              'train' : True},
+                              'allow_padding' : False},
                'optimizer' : {'name' : 'RAdam',
                               'lr' : 1e-3},
                'scheduler' : {'name' : 'ReduceLROnPlateau',
@@ -118,7 +118,6 @@ class TrainBoiler ():
             self.state.cur_epoch = ep+1
             self.report_epoch(train_loss, valid_loss, status_msg)
             self.save_checkpoint()
-
 
 
     def epoch_step (self, ep, loader, valid=False):
@@ -340,6 +339,8 @@ class TrainBoiler ():
                                   col_name)
 
         self.collator = col_module.Collator(**col_cfg)
+        self.collator.train = True
+        self.collator.collate_to = 'torch'
         
     def set_sample_input (self, sample_input):
         # copy logic from utils.forward
