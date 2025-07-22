@@ -106,14 +106,13 @@ class Collator ():
             return (self.collate_item(inputs),
                     self.collate_item(targets))
         else:
-            if self.collate_to == 'numpy':
-                weights = [np.array(s[1], np.float32)
-                           for s in samples]
-            else:
-                weights = [torch.tensor(s[1], torch.float32)
-                           for s in samples]
+            weights = [np.array(s[1], np.float32)
+                       for s in samples]
+            if self.collate_to == 'torch':
+                weights = torch.from_numpy(weights)
+            
             return (self.collate_item(inputs),
-                    self.collate_item(weights),
+                    weights,
                     self.collate_item(targets))
         
     def __call__ (self, samples):
