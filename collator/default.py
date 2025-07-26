@@ -1,124 +1,86 @@
 import numpy as np
-from ..utils import LazyImport 
+import collections.abc
 
-torch = LazyImport('torch')
 
+# TODO: return contiguous arrays
 class Collator ():
-    def __init__ (self, allow_padding=False):
-        self.train = True
-        self.collate_to = 'numpy'
-        self.allow_padding = allow_padding
-        # TODO: get rid of train arg:
-        # make it work with list(list(array)) and list(dict(array))
-        # OR:
-        # move collation into parse_batch => no need for train mode
-        # here check if loosing any dataloader functionality
-        #
-        # TODO: make it work with pure numbers and list of pure numbers
-        # at the place of array
-    """
-    def train (self):
-        self.train = True
-        return self
+    def __init__ (self, depth=3, pad_axes=None, pad_value=0, **kwargs):
+        self.depth = depth
+        self.pad_axes = pad_axes
+        self.pad_value = pad_value
+        
+        self.collate_fn_map = {np.ndarray: self.collate_numpy_array_fn}
+        for type_ in np.ScalarType:
+            self.collate_fn_map[type_] = self.collate_numpy_scalar_fn
 
-    def eval (self):
-        self.train = False
-        return self
+    def collate_numpy_scalar_fn (self, batch):
+        ret = np.asarray(batch)
+        if (ret.dtype == np.float64 and
+            type(batch[0]) is float):
+            # fixing default numpy float type: float64->float32
+            ret = ret.astype(np.float32)
+        return ret
+    
+    def collate_numpy_array_fn (self, batch):
+        if self.pad_axes is None:
+            return np.stack(batch)
 
-    def torch (self):
-        self.collate_to = 'torch'
-        return self
-
-    def numpy (self):
-        self.collate_to = 'numpy'
-        return self
-    """
-    def get_dtype (self, array):
-        # efficiency nightmare, requires rework
-        name = type(array).__name__
-        if name == 'Tensor':
-            if self.collate_to == 'torch':
-                return array.dtype
-            else: # torch -> numpy 
-                return array.numpy().dtype
-        if name == 'ndarray':
-            if self.collate_to == 'numpy':
-                return array.dtype
-            else: # numpy -> torch 
-                return torch.from_numpy(array).dtype
-
-    def stack_fn (self, samples):
-        if self.collate_to == 'torch':
-            zeros = torch.zeros
-            tensor = torch.tensor
-            stack = torch.stack
-        elif self.collate_to == 'numpy':
-            zeros = np.zeros
-            tensor = np.array
-            stack = np.stack
+        if self.pad_axes == 'all':
+            n_axes = len(batch[0].shape)
+            pad_axes = list(range(n_axes))
         else:
-            raise Exception(f"collate_to must be `numpy` or `torch`; got {self.collate_to}")
-
-        if not self.allow_padding:
-            return stack(samples)
-
-
-        if len(samples[0].shape) == 0:
-            return stack(samples)
+            pad_axes = self.pad_axes
         
-        lens = [s.shape[0] for s in samples]
-        if len(np.unique(lens)) == 1: # no padding required
-            return stack(samples)
-        
-        maxlen = max(lens)
-        rest_dims = samples[0].shape[1:]
-        dims = [len(samples), maxlen] + list(rest_dims)
-            
-        packed = zeros(dims, dtype=self.get_dtype(samples[0]))
-        for i,s in enumerate(samples):
-            s_len = s.shape[0]
-            packed[i, :s_len] = tensor(s)
-
+        shapes = np.array([sample.shape for sample in batch])
+        uniq_shapes_to_pad = np.unique(shapes[:, pad_axes])
+        if len(uniq_shapes_to_pad) == 1:
+            return np.stack(batch)
+    
+        pack_shape = [len(batch)] + shapes.max(axis=0).tolist()
+        packed = np.zeros(pack_shape,
+                      dtype=batch[0].dtype)
+        packed.fill(self.pad_value)
+        for sample_id,sample in enumerate(batch):
+            slices = [i]+[slice(0,d) for d in sample.shape]
+            slices = [sample_id]
+            for axis_id,dim in enumerate(sample.shape):
+                if axis_id in pad_axes:
+                    slices.append(slice(0, dim))
+                else:
+                    max_dim = packed.shape[axis_id+1]
+                    slices.append(slice(0, max_dim))
+                    slices.append(...)
+            packed[tuple(slices)] = sample
+    
         return packed
-        
-    def collate_item (self, samples):
-        name = type(samples[0]).__name__        
-        if name in ['ndarray', 'Tensor']:
-            return self.stack_fn(samples)
-        elif name in ['list', 'tuple']:
-            return [self.stack_fn([s[i]
-                                   for s in samples])
-                    for i in range(len(samples[0]))]
-        elif name in ['dict']:
-            return {k:self.stack_fn([s[k]
-                                     for s in samples])
-                    for k in samples[0].keys()}
-        else:
-            raise Exception(f'Unknown sample format: {name}')
-
-    def collate_train (self, samples):
-        n_items = len(samples[0])
-        if n_items not in [2,3]:
-            raise Exception(f'Train dataset samples should be lists of len==2 ([input, output]) or len==3 ([input, weight, output]). Got len=={n_items}')
-        inputs = [s[0] for s in samples]
-        targets = [s[-1] for s in samples]
-        if len(samples[0]) == 2:
-            return (self.collate_item(inputs),
-                    self.collate_item(targets))
-        else:
-            weights = np.array([s[1] for s in samples])
-            if self.collate_to == 'torch':
-                weights = torch.from_numpy(weights)
             
-            return (self.collate_item(inputs),
-                    weights,
-                    self.collate_item(targets))
+    def collate (self, batch, depth):
+        if depth < 0:
+            raise RuntimeError('Collation recursion depth reached. try less data comlicated structure')
         
-    def __call__ (self, samples):
-        if self.train:
-            return self.collate_train(samples)
+        elem = batch[0]
+        elem_type = type(elem)
+        
+        if elem_type in self.collate_fn_map:
+            return self.collate_fn_map[elem_type](batch)
+
+        if isinstance(elem, collections.abc.Mapping):
+            return elem_type(
+                {key: self.collate(
+                    [d[key] for d in batch],
+                    depth-1)
+                 for key in elem})
+
+        elif isinstance(elem, collections.abc.Sequence):
+            #it = iter(batch)
+            #elem_size = len(next(it))
+            #if not all(len(elem) == elem_size for elem in it):
+            #    raise RuntimeError("each element in list of batch should be of equal size")
+            transposed = list(zip(*batch))
+            return elem_type([self.collate(elem, depth-1)
+                              for elem in transposed])
         else:
-            return self.collate_item(samples)
+            raise TypeError(f'Cannot collate data type: {elem_type}')
 
-        
-
+    def __call__ (self, batch):
+        return self.collate(batch, self.depth)

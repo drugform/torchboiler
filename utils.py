@@ -81,6 +81,7 @@ def get_regression_flags (Y):
             len((Y[:,i][Y[:,i].nonzero()]-1).nonzero()[0]) > 0)
     return regression 
 
+# IDEA: implement recursion logic from default collator
 def convert_sample (sample, to):
     name = type(sample).__name__
     if name in ['Tensor', 'ndarray']:
@@ -120,21 +121,6 @@ def convert_item (item, to):
     else:
         raise Exception(f'Unknown conversion target: {to}. Expecting `numpy`,  `cpu` (torch), `cuda`, `cuda:X`')
 
-def parse_batch (batch, to):
-    inpt = convert_sample(batch[0], to)
-    tgt  = convert_sample(batch[-1], to)
-    name = type(inpt).__name__
-    if name in ['list', 'tuple']:
-        bs = len(inpt[0])
-    elif name in ['dict']:
-        bs = len(next(iter(inpt.values())))
-    else:
-        bs = len(inpt)
-    if len(batch) == 3:
-        w = convert_sample(batch[1], to)
-    else:
-        w = convert_sample(np.ones(bs, np.float32), to)
-    return inpt, w, tgt
 
 def forward (net, inpt):
     name = type(inpt).__name__
@@ -147,3 +133,25 @@ def forward (net, inpt):
     else:
         Exception(f'Unsupported network input type: {name}')
 
+class DataLoader ():
+    def __init__ (self, dataset, batch_size, collate_fn):
+        self.dataset = dataset
+        self.batch_size = batch_size
+        self.collate_fn = collate_fn
+        
+        self.pos = 0
+        self.limit = len(dataset)
+
+    def __iter__ (self):
+        return self
+        
+    def __next__(self):
+        to = min(self.pos + self.batch_size,
+                 self.limit)
+        if self.pos >= self.limit:
+            raise StopIteration
+        
+        samples = [self.dataset[idx] for idx
+                   in range(self.pos, to)]
+        self.pos += len(samples)
+        return self.collate_fn(samples)

@@ -7,6 +7,7 @@ from . import utils
 from .utils import fprint
 from . import criterion
 from . import serialize
+from . import collator
 
 torch = utils.LazyImport("torch")
 onnxruntime = utils.LazyImport("onnxruntime")
@@ -30,7 +31,23 @@ class ExecBoiler ():
         else:
             raise Exception(f'Unknown format: {self.format}')
 
+        self.init_collator(caller_globals)
+        self.runner.cfg = self.cfg
+        self.runner.collator = self.collator
+        
         del ckpt
+
+    def init_collator (self, caller_globals={}):
+        # copy from train.py
+        col_cfg = deepcopy(self.cfg.collator.__dict__)
+        col_name = col_cfg.pop('name')
+        
+        col_module = caller_globals.get(col_name)
+        if col_module is None:
+            col_module = getattr(globals()['collator'],
+                                  col_name)
+
+        self.collator = col_module.Collator(**col_cfg)
 
     def set_attributes (self):
         for k,v in self.cfg.attributes.__dict__.items():
@@ -52,8 +69,13 @@ class ExecBoiler ():
         self.criterion = crit_module.CriterionPortable(**crit_cfg)
         self.criterion.load_state_dict(state_dict)
 
-    def __call__ (self, input_):
+
+    def forward (self, input_):
         output = self.runner(input_)
+        return self.criterion.postproc(output)
+
+    def __call__ (self, dataset, batch_size=None):
+        output = self.runner(dataset, batch_size)
         return self.criterion.postproc(output)
         
     
@@ -120,25 +142,77 @@ def forward_onnx (net, input_):
     else:
         return ort_output
 
+    
 class ExecTorch ():
     def __init__ (self, ckpt, device, **kwargs):
         self.net = load_net_torch(ckpt, device,
                                   net=kwargs['net'])
-    def __call__ (self, inpt):
+
+    def forward (self, inpt):
         return forward_torch(self.net, inpt)
 
+    def __call__ (self, dataset, batch_size=None):
+        collate_fn = utils.dataset_attr(
+            dataset, 'collate_fn', ignore_missing=True)
+        data_loader = torch.utils.data.DataLoader(
+            dataset,
+            batch_size = (batch_size or self.cfg.batch_size),
+            shuffle = False,
+            num_workers = 0,
+            pin_memory = True,
+            collate_fn = collate_fn or self.collator)
+
+        preds = []
+        for batch in data_loader:
+            inpt = utils.convert_sample(batch, self.device)
+            out = self.forward(inpt)
+            preds.append(utils.convert_sample(out, 'numpy'))
+        return torch.vstack(preds)
+            
 class ExecTorchScript ():
     def __init__ (self, ckpt, device, **kwargs):
         self.net = load_net_torchscript(ckpt, device)
-    def __call__ (self, inpt):
+    def forward (self, inpt):
         return forward_torch(self.net, inpt)
+    # full copy of ExecTorch
+    def __call__ (self, dataset, batch_size=None):
+        collate_fn = utils.dataset_attr(
+            dataset, 'collate_fn', ignore_missing=True)
+        data_loader = torch.utils.data.DataLoader(
+            dataset,
+            batch_size = (batch_size or self.cfg.batch_size),
+            shuffle = False,
+            num_workers = 0,
+            pin_memory = True,
+            collate_fn = collate_fn or self.collator)
+
+        preds = []
+        for batch in data_loader:
+            inpt = utils.convert_sample(batch, self.device)
+            out = self.forward(inpt)
+            preds.append(utils.convert_sample(out, 'numpy'))
+        return np.vstack(preds)
+
 
 class ExecONNX ():
     def __init__ (self, ckpt, device, **kwargs):
         self.net = load_net_onnx(ckpt, device,
                                  backend=kwargs.get('backend'))
-    def __call__ (self, inpt):
+    def forward (self, inpt):
         return forward_onnx(self.net, inpt)
+
+    def __call__ (self, dataset, batch_size=None):
+        collate_fn = utils.dataset_attr(
+            dataset, 'collate_fn', ignore_missing=True)
+        data_loader = utils.DataLoader(
+            dataset,
+            batch_size = (batch_size or self.cfg.batch_size),
+            collate_fn = collate_fn or self.collator)
+
+        preds = []
+        for batch in data_loader:
+            preds.append(self.forward(batch))
+        return np.vstack(preds)
 
 
     
@@ -295,3 +369,4 @@ class ExecBoiler ():
         return pred
         
 """
+

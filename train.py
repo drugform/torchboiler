@@ -51,8 +51,7 @@ class TrainBoiler ():
     def make_config (args):
         cfg = {'batch_size' : 16,
                'criterion' : {'name' : 'mixed'},
-               'collator'  : {'name' : 'default',
-                              'allow_padding' : False},
+               'collator'  : {'name' : 'default'},
                'optimizer' : {'name' : 'RAdam',
                               'lr' : 1e-3},
                'scheduler' : {'name' : 'ReduceLROnPlateau',
@@ -120,6 +119,16 @@ class TrainBoiler ():
             self.save_checkpoint()
 
 
+    def convert_train_batch (self, batch, to):
+        inpt = utils.convert_sample(batch[0], to)
+        tgt = utils.convert_sample(batch[-1], to)
+        if len(batch) == 2:
+            w = None
+        else:
+            w = utils.convert_sample(batch[1], to)
+        return inpt, w, tgt
+
+            
     def epoch_step (self, ep, loader, valid=False):
         total_loss, sample_counter = 0,0
         n_repeat = (self.cfg.repeat_valid
@@ -131,7 +140,7 @@ class TrainBoiler ():
         for _ in range(n_repeat):
             t = utils.Progress(loader, self.cfg.verbose)
             for batch in t:
-                inpt,w,y = utils.parse_batch(batch, self.device)
+                inpt,w,y = utils.convert_train_batch(batch, self.device)
                 if not valid:
                     self.optimizer.zero_grad(set_to_none=True)
 
