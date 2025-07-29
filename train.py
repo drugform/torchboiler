@@ -140,7 +140,7 @@ class TrainBoiler ():
         for _ in range(n_repeat):
             t = utils.Progress(loader, self.cfg.verbose)
             for batch in t:
-                inpt,w,y = utils.convert_train_batch(batch, self.device)
+                inpt,w,y = self.convert_train_batch(batch, self.device)
                 if not valid:
                     self.optimizer.zero_grad(set_to_none=True)
 
