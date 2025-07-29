@@ -348,8 +348,6 @@ class TrainBoiler ():
                                   col_name)
 
         self.collator = col_module.Collator(**col_cfg)
-        self.collator.train = True
-        self.collator.collate_to = 'torch'
         
     def set_sample_input (self, sample_input):
         # copy logic from utils.forward
