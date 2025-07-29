@@ -290,7 +290,7 @@ class TrainBoiler ():
             shuffle = loader_shuffle,
             num_workers = self.cfg.n_workers,
             persistent_workers=True if self.cfg.n_workers > 0 else False,
-            pin_memory = True,
+            pin_memory = False,,
             prefetch_factor=1 if self.cfg.n_workers > 0 else None,
             collate_fn = collate_fn or self.collator)
         valid_loader = torch.utils.data.DataLoader(
@@ -298,7 +298,7 @@ class TrainBoiler ():
             batch_size = self.cfg.batch_size,
             shuffle = False,
             num_workers = self.cfg.n_workers,
-            pin_memory = True,
+            pin_memory = False,,
             prefetch_factor=1 if self.cfg.n_workers > 0 else None,
             persistent_workers=True if self.cfg.n_workers > 0 else False,
             collate_fn = collate_fn or self.collator)
