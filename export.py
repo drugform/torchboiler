@@ -23,9 +23,9 @@ class ExportBoiler ():
 
     def __call__ (self, name, **params):
         if name == 'torchscript':
-            self.to_torchscript(**params)
+            return self.to_torchscript(**params)
         elif name == 'onnx':
-            self.to_onnx(**params)
+            return self.to_onnx(**params)
         
     def to_torchscript (self, trace=False, keep_sample_input=False):
         dict_ = deepcopy(self.dict)
@@ -34,7 +34,7 @@ class ExportBoiler ():
         out_file = os.path.splitext(self.model_path)[0]+'.ts.bin'
         if trace:
             torch_input = utils.convert_sample(
-                self.sample_input, 'cpu')
+                self.sample_input.copy(), 'cpu')
             model = torch.jit.trace(self.net, torch_input)
         else:
             model = torch.jit.script(self.net)
