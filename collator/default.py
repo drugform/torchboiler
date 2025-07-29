@@ -41,13 +41,14 @@ class Collator ():
                       dtype=batch[0].dtype)
         packed.fill(self.pad_value)
         for sample_id,sample in enumerate(batch):
-            slices = [sample_id]+[slice(0,d) for d in sample.shape]
+            #slices = [sample_id]+[slice(0,d) for d in sample.shape]
+            slices = [sample_id]
             for axis_id,dim in enumerate(sample.shape):
                 if axis_id in pad_axes:
                     slices.append(slice(0, dim))
                 else:
-                    max_dim = packed.shape[axis_id+1]
-                    slices.append(slice(0, max_dim))
+                    #max_dim = packed.shape[axis_id+1]
+                    #slices.append(slice(0, max_dim))
                     slices.append(...)
             packed[tuple(slices)] = sample
     
