@@ -147,6 +147,7 @@ class ExecTorch ():
     def __init__ (self, ckpt, device, **kwargs):
         self.net = load_net_torch(ckpt, device,
                                   net=kwargs['net'])
+        self.device = device
 
     def forward (self, inpt):
         return forward_torch(self.net, inpt)
@@ -172,6 +173,8 @@ class ExecTorch ():
 class ExecTorchScript ():
     def __init__ (self, ckpt, device, **kwargs):
         self.net = load_net_torchscript(ckpt, device)
+        self.device = device
+
     def forward (self, inpt):
         return forward_torch(self.net, inpt)
     # full copy of ExecTorch
@@ -198,6 +201,8 @@ class ExecONNX ():
     def __init__ (self, ckpt, device, **kwargs):
         self.net = load_net_onnx(ckpt, device,
                                  backend=kwargs.get('backend'))
+        self.device = device
+
     def forward (self, inpt):
         return forward_onnx(self.net, inpt)
 
