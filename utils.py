@@ -87,8 +87,8 @@ def convert_sample (sample, to):
     if name in ['Tensor', 'ndarray']:
         return convert_item(sample, to)
     elif name in ['list', 'tuple']:
-        return [convert_item(item, to)
-                for item in sample]
+        return tuple([convert_item(item, to)
+                      for item in sample])
     elif name in ['dict']:
         return {k:convert_item(v, to)
                 for k,v in item.items()}

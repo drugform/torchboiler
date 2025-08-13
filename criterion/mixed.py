@@ -36,11 +36,16 @@ def mse_loss (output, target, weights=None):
     return torch.nn.functional.mse_loss(output, target)
 
 def mixed_loss (output, target, regression, weights=None):
+        
     losses = []
     
     outdim = len(target[0])
     batch_size = len(target)
 
+    if weights is None:
+        weights = torch.ones(batch_size,
+                             dtype=torch.float32).to(output.device)
+    
     assert output.shape == target.shape, 'Output and target shape mismatch'
     assert len(regression) == outdim, 'Regression flags shape mismatch'
     assert weights.shape[0] == batch_size, 'Weights shape and batch size mismatch'
@@ -109,8 +114,6 @@ class Criterion ():
         self.stdY = torch.FloatTensor(self.stdY).to(device)
         
     def __call__ (self, output, target, weights=None, unscaled=False):
-        global tmp
-        tmp = output, target, weights, self
         if unscaled:
             output = self.unscale(output)
         else:
