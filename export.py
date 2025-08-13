@@ -81,7 +81,10 @@ class ExportBoiler ():
         if not keep_sample_input:
             del dict_['sample_input']
         serialize.pack(dict_, out_file)
-        os.remove(onnx_tmp_file)
+        try:
+            os.remove(onnx_tmp_file)
+        except Exception as e:
+            print(f'Failed to delete onnx tmp file `{onnx_tmp_file}` : {e}')
         return out_file
 
 def onnx_format_dynamic_axes (net, sample_input, mode):
