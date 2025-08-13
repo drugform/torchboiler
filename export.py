@@ -1,6 +1,7 @@
 import io
 import os
 from copy import deepcopy
+import tempfile
 
 from . import utils
 from . import serialize
@@ -51,13 +52,14 @@ class ExportBoiler ():
         sample_input = utils.convert_sample(
             self.sample_input, 'cpu')
         out_file = os.path.splitext(self.model_path)[0]+'.onnx.bin'
-        onnx_tmp_file = "tmp.onnx" # TODO: use tmpfile #
-        # or use `artifacts_dir` arg in torch.onnx.export
 
+        artifacts_dir = os.path.dirname(self.model_path)
+        tmp_name = next(tempfile._get_candidate_names())
+        onnx_tmp_file = os.path.join(artifacts_dir, f"{tmp_name}.onnx")
         onnx_args = {'model' : self.net,
                      'dynamo' : True,
                      'report' : True,
-                     'artifacts_dir' : os.path.dirname(self.model_path)}
+                     'artifacts_dir' : artifacts_dir}
         
         if type(sample_input) is dict:
             onnx_args['kwargs'] = sample_input
