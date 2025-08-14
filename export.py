@@ -69,7 +69,9 @@ class ExportBoiler ():
         if type(dynamic_axes) is str:
             onnx_args.update(
                 onnx_format_dynamic_axes(
-                    self.net, sample_input, 'auto_batch'))
+                    self.net, sample_input, dynamic_axes))
+        else:
+            onnx_args.update(dynamic_axes)
 
         onnx_program = torch.onnx.export(**onnx_args)
         onnx_program.optimize()
