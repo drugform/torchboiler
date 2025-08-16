@@ -45,7 +45,60 @@ class ExportBoiler ():
             del dict_['sample_input']
         serialize.pack(dict_, out_file)
         return out_file
+
+    def to_onnx (self,
+                 override_dynamic_axes=None,
+                 keep_sample_input=False):
+        dict_ = deepcopy(self.dict)
+        self.net.eval()
+        sample_input = utils.convert_sample(
+            self.sample_input, 'cpu')
+        out_file = os.path.splitext(self.model_path)[0]+'.onnx.bin'
+
+        artifacts_dir = os.path.dirname(self.model_path)
+        tmp_name = next(tempfile._get_candidate_names())
+        onnx_tmp_file = os.path.join(artifacts_dir, f"{tmp_name}.onnx")
+        onnx_args = {'model' : self.net,
+                     'dynamo' : True,
+                     'report' : True,
+                     'artifacts_dir' : artifacts_dir}
         
+        if type(sample_input) is dict:
+            onnx_args['kwargs'] = sample_input
+        else:
+            onnx_args['args'] = sample_input
+
+        if override_dynamic_shapes is None:
+            dynshapes = dict_.info.dynamic_shapes
+        else:
+            dynshapes = override_dynamic_shapes
+
+        onnx_args.update({
+            'input_names' : list(dynshapes['in'].keys()),
+            'output_names' : list(dynshapes['out'].keys()),
+            'dynamic_axes' : {**dynshapes['in'],
+                              **dynshapes['out']}})
+
+        onnx_program = torch.onnx.export(**onnx_args)
+        onnx_program.optimize()
+        onnx_program.save(onnx_tmp_file)
+
+        with open(onnx_tmp_file, 'rb') as fp:
+            onnx_bytes = fp.read()
+
+        dict_['format'] = 'onnx'
+        dict_['net'] = onnx_bytes
+        if not keep_sample_input:
+            del dict_['sample_input']
+        serialize.pack(dict_, out_file)
+        try:
+            os.remove(onnx_tmp_file)
+        except Exception as e:
+            print(f'Failed to delete onnx tmp file `{onnx_tmp_file}` : {e}')
+        return out_file
+
+        
+"""        
     def to_onnx (self, dynamic_axes=None, keep_sample_input=False):
         dict_ = deepcopy(self.dict)
         self.net.eval()
@@ -123,3 +176,4 @@ def onnx_format_dynamic_axes (net, sample_input, mode):
                 'dynamic_axes' : dynamic_axes}
     else:
         raise Exception(f'Unknown dynamic axes mode: {mode}')
+"""

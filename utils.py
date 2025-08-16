@@ -155,3 +155,17 @@ class DataLoader ():
                    in range(self.pos, to)]
         self.pos += len(samples)
         return self.collate_fn(samples)
+
+
+def get_sample_shapes (sample, prefix):
+    name = type(sample).__name__
+    if name in ['Tensor', 'ndarray']:
+        return {f'{prefix}_0' : tuple(sample.shape)}
+    elif name in ['list', 'tuple']:
+        return {f'{prefix}_{i}' : tuple(sample[i].shape)
+                for i in range(len(sample))}
+    elif name in ['dict']:
+        return {f'{prefix}_{k}' : tuple(v.shape)
+                for k,v in sample.items()}
+    else:
+        Exception(f'Unsupported batch item type: {name}')

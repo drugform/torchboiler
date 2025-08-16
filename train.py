@@ -19,7 +19,7 @@ from . import collator
 torch = utils.LazyImport("torch")
 tensorboard = utils.LazyImport("torch.utils.tensorboard")        
         
-class TrainBoiler ():    
+class TrainBoiler ():
     def __init__ (self, name, config,
                   dataset, net, device,
                   start_from_checkpoint=None,
@@ -36,6 +36,7 @@ class TrainBoiler ():
         self.net.to(device)
 
         self.cfg = config
+        self.init_info()
         self.init_state()
         self.init_optimizer()
         self.init_criterion(dataset, caller_globals)
@@ -116,9 +117,41 @@ class TrainBoiler ():
 
             self.state.cur_epoch = ep+1
             self.report_epoch(train_loss, valid_loss, status_msg)
+
+            if ep == 0:
+                self.format_dynamic_shapes()        
+
             self.save_checkpoint()
 
+    def collect_sample_shapes (self, sample, prefix):
+        # TODO: проверять полное соответствие ключей в collect_shapes
+        shapes = utils.get_sample_shapes(sample)
+        if self.state.shapes.get(prefix) is None:
+            self.state.shapes[prefix] = {
+                k:set() for k in shapes.keys()}
 
+        for k,v in shapes.items():
+            self.state.shapes[prefix][k].add(v)
+
+    def collect_batch_shapes (self, ep, batch):
+        if ep == 0:
+            inpt, tgt = batch[0], batch[-1]
+            self.collect_sample_shapes(inpt, 'in')
+            self.collect_sample_shapes(out, 'out')
+
+    def format_dynamic_shapes (self):
+        def infer_dyn (self, shapes):
+            dyn = {}
+            for k,v in shapes:
+                axis_diff_shapes = ( (v==v[0]).sum(axis=0)!=len(v) )
+                axis_diff_shapes[0] = True # always write zero axis (batch)
+                dyn[k] = np.where(axis_diff_shapes)[0].tolist()
+            return dyn
+        
+        self.info.dynamic_shapes = {
+            'in' : infer_dyn(self.state.shapes['in']),
+            'out' : infer_dyn(self.state.shapes['out'])}
+            
     def convert_train_batch (self, batch, to):
         inpt = utils.convert_sample(batch[0], to)
         tgt = utils.convert_sample(batch[-1], to)
@@ -127,7 +160,6 @@ class TrainBoiler ():
         else:
             w = utils.convert_sample(batch[1], to)
         return inpt, w, tgt
-
             
     def epoch_step (self, ep, loader, valid=False):
         total_loss, sample_counter = 0,0
@@ -140,7 +172,9 @@ class TrainBoiler ():
         for _ in range(n_repeat):
             t = utils.Progress(loader, self.cfg.verbose)
             for batch in t:
+                self.collect_batch_shapes(batch)
                 inpt,w,y = self.convert_train_batch(batch, self.device)
+
                 if not valid:
                     self.optimizer.zero_grad(set_to_none=True)
 
@@ -152,7 +186,6 @@ class TrainBoiler ():
                 else:
                     self.set_sample_input(inpt)
                     yp = utils.forward(self.net, inpt)
-                    #yp = self.net(inpt)
 
                 if not valid:
                     loss = self.criterion(yp, y, weights=w)
@@ -171,7 +204,6 @@ class TrainBoiler ():
             
         mean_loss = np.sqrt(total_loss / sample_counter)
         return float(mean_loss)
-
             
     def report_epoch (self, train_loss, valid_loss, status_msg):        
         elapsed_time = int(time.time()-self.state.start_moment)
@@ -304,6 +336,11 @@ class TrainBoiler ():
             collate_fn = collate_fn or self.collator)
         return train_loader, valid_loader
 
+    def init_info (self):
+        self.info = SimpleNamespace()
+        self.info.version = self.version
+        self.info.dynshapes = {}
+
     def init_state (self):
         self.state = SimpleNamespace()
         self.state.early_stop_counter = 0
@@ -312,6 +349,7 @@ class TrainBoiler ():
         self.state.early_stopped = False
         self.state.restart_done = False
         self.state.log = []
+        self.state.shapes = dict()
 
     def init_optimizer (self):
         opt_cfg = deepcopy(self.cfg.optimizer.__dict__)
@@ -354,7 +392,7 @@ class TrainBoiler ():
         if not hasattr(self, 'sample_input'):
             self.sample_input = utils.convert_sample(
                 sample_input, 'numpy')                
-
+            
     def save_checkpoint (self):
         ckpt = {'format' : 'torch',
                 'net' : self.net.state_dict(),
@@ -362,15 +400,17 @@ class TrainBoiler ():
                 'scheduler' : self.scheduler.state_dict(),
                 'criterion' : self.criterion.state_dict(),
                 'state' : self.state,
+                'info' : self.info,
                 'cfg' : self.cfg,
                 'sample_input' : self.sample_input}
         serialize.pack(ckpt, self.checkpoint_file)
-
+        
     def save_best (self):
         ckpt = {'format' : 'torch',
                 'net' : self.net.state_dict(),
                 'criterion' : self.criterion.state_dict(),
                 'cfg' : self.cfg,
+                'info' : self.info,
                 'sample_input' : self.sample_input}
         serialize.pack(ckpt, self.best_file)
 
