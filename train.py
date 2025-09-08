@@ -25,6 +25,7 @@ class TrainBoiler ():
                   start_from_checkpoint=None,
                   root='/tmp/torchboiler', hooks={},
                   caller_globals={}):
+        self.version = '0.1.0'
         self.name = name
         utils.set_seed(42)
         self.device = device
@@ -339,7 +340,7 @@ class TrainBoiler ():
     def init_info (self):
         self.info = SimpleNamespace()
         self.info.version = self.version
-        self.info.dynshapes = {}
+        self.info.dynamic_shapes = {}
 
     def init_state (self):
         self.state = SimpleNamespace()
