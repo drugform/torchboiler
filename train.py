@@ -173,7 +173,7 @@ class TrainBoiler ():
         for _ in range(n_repeat):
             t = utils.Progress(loader, self.cfg.verbose)
             for batch in t:
-                self.collect_batch_shapes(batch)
+                self.collect_batch_shapes(ep, batch)
                 inpt,w,y = self.convert_train_batch(batch, self.device)
 
                 if not valid:
