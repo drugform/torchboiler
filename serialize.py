@@ -7,7 +7,7 @@ from . import utils
 
 torch = utils.LazyImport("torch")
 
-EXT_TYPES = ['numpy', 'torch', 'torchscript', 'namespace']
+EXT_TYPES = ['numpy', 'torch', 'torchscript', 'namespace', 'set']
 _EXT_CODES_REV = dict(enumerate(EXT_TYPES))
 _EXT_CODES = {v:k for k,v in enumerate(EXT_TYPES)}
 
@@ -26,6 +26,9 @@ def _packer (obj):
     elif name == 'Tensor':
         return msgpack.ExtType(
             *encode_torch(obj))
+    elif name == 'set':
+        return msgpack.ExtType(
+            *encode_set(obj))
     else:
         raise Exception(f"no encoder for {obj} (class name: {name})")
 
@@ -73,6 +76,11 @@ def encode_torchscript (obj):
         dump = f.getvalue()
     return code, dump
 
+def encode_set (obj):
+    obj_type = 'set'
+    code = _EXT_CODES[obj_type]
+    return code, packb(list(obj))
+
 ################################################################
 
 def _unpacker (code, data):
@@ -85,6 +93,8 @@ def _unpacker (code, data):
         return decode_torchscript(data)
     elif obj_type == 'namespace':
         return decode_namespace(data)
+    elif obj_type == 'set':
+        return decode_set(data)
     else:
         raise Exception(f'unknown type: {obj_type}')
 
@@ -123,3 +133,7 @@ def decode_torchscript (data):
         module = torch.jit.load(f,
                             map_location='cpu')
     return module
+
+def decode_set (data):
+    return set(data)
+

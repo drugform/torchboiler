@@ -51,16 +51,16 @@ class TrainBoiler ():
 
     @staticmethod
     def make_config (args):
-        cfg = {'batch_size' : 16,
+        cfg = {'batch_size' : 64,
                'criterion' : {'name' : 'mixed'},
                'collator'  : {'name' : 'default'},
                'optimizer' : {'name' : 'RAdam',
-                              'lr' : 1e-3},
+                              'lr' : 3e-4},
                'scheduler' : {'name' : 'ReduceLROnPlateau',
                               'mode' : 'min',
                               'factor' : 2./(1+math.sqrt(5)),
                               'patience' : 3,
-                              'min_lr' : 1e-4},
+                              'min_lr' : 3e-5},
                'n_epochs' : 50,
                'train_prop' : 0.9,
                'n_workers' : 0,
@@ -110,6 +110,12 @@ class TrainBoiler ():
                 fprint('Got nan and stopped')
                 break
 
+            if ep == 0:
+                self.format_dynamic_shapes()        
+                fprint(f'Infering dynamic shapes:')
+                fprint(f'Inputs:  {self.info.dynamic_shapes["in"]}')
+                fprint(f'Outputs: {self.info.dynamic_shapes["out"]}')
+            
             self.scheduler.step(valid_loss)
             status_msg = self.check_progress(valid_loss)
             
@@ -118,15 +124,12 @@ class TrainBoiler ():
 
             self.state.cur_epoch = ep+1
             self.report_epoch(train_loss, valid_loss, status_msg)
-
-            if ep == 0:
-                self.format_dynamic_shapes()        
-
+                
             self.save_checkpoint()
 
     def collect_sample_shapes (self, sample, prefix):
         # TODO: проверять полное соответствие ключей в collect_shapes
-        shapes = utils.get_sample_shapes(sample)
+        shapes = utils.get_sample_shapes(sample, prefix)
         if self.state.shapes.get(prefix) is None:
             self.state.shapes[prefix] = {
                 k:set() for k in shapes.keys()}
@@ -138,19 +141,20 @@ class TrainBoiler ():
         if ep == 0:
             inpt, tgt = batch[0], batch[-1]
             self.collect_sample_shapes(inpt, 'in')
-            self.collect_sample_shapes(out, 'out')
+            self.collect_sample_shapes(tgt, 'out')
 
     def format_dynamic_shapes (self):
-        def infer_dyn (self, shapes):
+        def infer_dyn (shapes):
             dyn = {}
-            for k,v in shapes:
+            for name,shapes_set in shapes.items():
+                v = np.array(list(shapes_set))
                 axis_diff_shapes = ( (v==v[0]).sum(axis=0)!=len(v) )
                 axis_diff_shapes[0] = True # always write zero axis (batch)
-                dyn[k] = np.where(axis_diff_shapes)[0].tolist()
+                dyn[name] = np.where(axis_diff_shapes)[0].tolist()
             return dyn
         
         self.info.dynamic_shapes = {
-            'in' : infer_dyn(self.state.shapes['in']),
+            'in'  : infer_dyn(self.state.shapes['in']),
             'out' : infer_dyn(self.state.shapes['out'])}
             
     def convert_train_batch (self, batch, to):
@@ -405,6 +409,7 @@ class TrainBoiler ():
                 'cfg' : self.cfg,
                 'sample_input' : self.sample_input}
         serialize.pack(ckpt, self.checkpoint_file)
+
         
     def save_best (self):
         ckpt = {'format' : 'torch',
@@ -420,6 +425,7 @@ class TrainBoiler ():
             
         # TODO: compare given cfg with loaded, print the diff            
         self.state = ckpt['state']
+        self.info = ckpt['info']
         self.net.load_state_dict(ckpt['net'])
         self.optimizer.load_state_dict(ckpt['optimizer'])
         self.scheduler.load_state_dict(ckpt['scheduler'])

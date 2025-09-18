@@ -47,7 +47,7 @@ class ExportBoiler ():
         return out_file
 
     def to_onnx (self,
-                 override_dynamic_axes=None,
+                 override_dynamic_shapes=None,
                  keep_sample_input=False):
         dict_ = deepcopy(self.dict)
         self.net.eval()
@@ -69,7 +69,7 @@ class ExportBoiler ():
             onnx_args['args'] = sample_input
 
         if override_dynamic_shapes is None:
-            dynshapes = dict_.info.dynamic_shapes
+            dynshapes = dict_['info'].dynamic_shapes
         else:
             dynshapes = override_dynamic_shapes
 
@@ -78,7 +78,9 @@ class ExportBoiler ():
             'output_names' : list(dynshapes['out'].keys()),
             'dynamic_axes' : {**dynshapes['in'],
                               **dynshapes['out']}})
-
+        
+        global tmp
+        tmp = onnx_args, self
         onnx_program = torch.onnx.export(**onnx_args)
         onnx_program.optimize()
         onnx_program.save(onnx_tmp_file)
