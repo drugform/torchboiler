@@ -15,7 +15,7 @@ from .utils import fprint
 from . import criterion
 from . import serialize
 from . import collator
-
+from .version import __version__
 torch = utils.LazyImport("torch")
 tensorboard = utils.LazyImport("torch.utils.tensorboard")        
         
@@ -25,8 +25,12 @@ class TrainBoiler ():
                   start_from_checkpoint=None,
                   root='/tmp/torchboiler', hooks={},
                   caller_globals={}):
-        self.version = '0.1.0'
+        self.root = root
         self.name = name
+        if self.get_result() is not None:
+            fprint(f'Training `{self.name}` already finished')
+            return
+        
         utils.set_seed(42)
         self.device = device
         self.net = net
@@ -48,6 +52,10 @@ class TrainBoiler ():
 
         self.state.start_moment = time.time()
         self.train_loop(dataset, hooks)
+        if self.get_result() is None:
+            raise Exception(f'Training `{self.name}` failed')
+        else:
+            fprint('Training `{self.name}` finished')
 
     @staticmethod
     def make_config (args):
@@ -85,7 +93,7 @@ class TrainBoiler ():
         
     def train_loop (self, dataset, hooks):
         train_loader, valid_loader = self.make_loaders(dataset)
-        
+
         for ep in range(self.state.cur_epoch,
                         self.cfg.n_epochs):
             if self.state.early_stopped:
@@ -108,7 +116,7 @@ class TrainBoiler ():
                 
             if np.isnan(train_loss) or np.isnan(valid_loss):
                 fprint('Got nan and stopped')
-                break
+                raise Exception(f'Training failed (got NaN)')
 
             if ep == 0:
                 self.format_dynamic_shapes()        
@@ -126,6 +134,9 @@ class TrainBoiler ():
             self.report_epoch(train_loss, valid_loss, status_msg)
                 
             self.save_checkpoint()
+
+        open(os.path.join(self.workdir, 'success'),
+             'w').close()
 
     def collect_sample_shapes (self, sample, prefix):
         # TODO: проверять полное соответствие ключей в collect_shapes
@@ -227,7 +238,17 @@ class TrainBoiler ():
     def get_rate (self):
         return [p['lr'] for p
                 in self.optimizer.param_groups][0]
-    
+
+    def get_result (self):
+        workdir = os.path.join(self.root, self.name)
+        best_file = os.path.join(workdir, 'best.bin')
+        success_file = os.path.join(workdir, 'success')
+        if (os.path.exists(success_file)
+            and os.path.exists(best_file)):
+            return best_file
+        else:
+            return None
+        
     def init_workdir (self, root):
         os.makedirs(root, exist_ok=True)
         workdir = os.path.join(root, self.name)
@@ -343,11 +364,12 @@ class TrainBoiler ():
 
     def init_info (self):
         self.info = SimpleNamespace()
-        self.info.version = self.version
+        self.info.version = __version__
         self.info.dynamic_shapes = {}
 
     def init_state (self):
         self.state = SimpleNamespace()
+        self.state.success = False
         self.state.early_stop_counter = 0
         self.state.cur_epoch = 0
         self.state.best_value = np.nan

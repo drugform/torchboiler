@@ -79,8 +79,6 @@ class ExportBoiler ():
             'dynamic_axes' : {**dynshapes['in'],
                               **dynshapes['out']}})
         
-        global tmp
-        tmp = onnx_args, self
         onnx_program = torch.onnx.export(**onnx_args)
         onnx_program.optimize()
         onnx_program.save(onnx_tmp_file)
