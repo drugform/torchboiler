@@ -35,7 +35,7 @@ class TrainBoiler ():
         self.device = device
         self.net = net
         if start_from_checkpoint is not None:
-            self.load_net_from_checkpoint(
+             self.load_net_from_checkpoint(
                 start_from_checkpoint)
 
         self.net.to(device)
@@ -51,11 +51,21 @@ class TrainBoiler ():
             log_dir=self.workdir)
 
         self.state.start_moment = time.time()
-        self.train_loop(dataset, hooks)
+        #self.train_loop(dataset, hooks)
+        can_continue = self.main_loop(dataset, hooks)
+        if can_continue and self.cfg.tune_steps > 0:
+            self.load_checkpoint()
+            if self.state.tune_steps_counter == 0:
+                self.init_optimizer(tune=True)
+            self.tune_loop(dataset, hooks)
+        
+        open(os.path.join(self.workdir, 'success'),
+             'w').close()
+        
         if self.get_result() is None:
             raise Exception(f'Training `{self.name}` failed')
         else:
-            fprint('Training `{self.name}` finished')
+            fprint(f'Training `{self.name}` finished')            
 
     @staticmethod
     def make_config (args):
@@ -70,6 +80,7 @@ class TrainBoiler ():
                               'patience' : 3,
                               'min_lr' : 3e-5},
                'n_epochs' : 50,
+               'tune_steps' : 0,
                'train_prop' : 0.9,
                'n_workers' : 0,
                'verbose' : True,
@@ -90,7 +101,8 @@ class TrainBoiler ():
             if type(cfg[k]) is dict:
                 cfg[k] = SimpleNamespace(**cfg[k])
         return SimpleNamespace(**cfg)
-        
+
+    """
     def train_loop (self, dataset, hooks):
         train_loader, valid_loader = self.make_loaders(dataset)
 
@@ -137,6 +149,91 @@ class TrainBoiler ():
 
         open(os.path.join(self.workdir, 'success'),
              'w').close()
+    """
+    def main_loop (self, dataset, hooks):
+        train_loader, valid_loader = self.make_loaders(dataset)
+
+        for ep in range(self.state.cur_epoch,
+                        self.cfg.n_epochs):
+            if self.state.early_stopped:
+                return True
+
+            if os.path.exists(self.stop_file):
+                os.remove(self.stop_file)
+                fprint("Stopped on demand")
+                return False
+
+            self.net.train()
+            train_loss = self.epoch_step(ep, train_loader)
+            self.log_writer.add_scalar('Loss/train', train_loss, ep)
+
+            self.net.eval()
+            with torch.no_grad():
+                valid_loss = self.epoch_step(
+                    ep, valid_loader, valid=True)            
+            self.log_writer.add_scalar('Loss/valid', valid_loss, ep)
+                
+            if np.isnan(train_loss) or np.isnan(valid_loss):
+                fprint('Got nan and stopped')
+                raise Exception(f'Training failed (got NaN)')
+
+            if ep == 0:
+                self.format_dynamic_shapes()        
+                fprint(f'Infering dynamic shapes:')
+                fprint(f'Inputs:  {self.info.dynamic_shapes["in"]}')
+                fprint(f'Outputs: {self.info.dynamic_shapes["out"]}')
+            
+            self.scheduler.step(valid_loss)
+            status_msg = self.check_progress(valid_loss)
+            
+            if hooks.get('post_epoch_hook') is not None:
+                hooks['post_epoch_hook'](self)
+
+            self.state.cur_epoch = ep+1
+            self.report_epoch(train_loss, valid_loss, status_msg)
+                
+            self.save_checkpoint()
+        return True
+
+    def tune_loop (self, dataset, hooks):
+        train_loader, valid_loader = self.make_loaders(
+            dataset, force_shuffle=True)
+
+        for ep in range(self.state.tune_steps_counter,
+                        self.cfg.tune_steps):
+            time.sleep(1)
+            if os.path.exists(self.stop_file):
+                os.remove(self.stop_file)
+                fprint("Stopped on demand")
+                break
+
+            self.net.train()
+            train_loss = self.epoch_step(ep, train_loader)
+            self.log_writer.add_scalar('Loss/train', train_loss, ep)
+
+            self.net.eval()
+            with torch.no_grad():
+                valid_loss = self.epoch_step(
+                    ep, valid_loader, valid=True)            
+            self.log_writer.add_scalar('Loss/valid', valid_loss, ep)
+                
+            if np.isnan(train_loss) or np.isnan(valid_loss):
+                fprint('Got nan and stopped')
+                raise Exception(f'Training failed (got NaN)')
+            
+            status_msg = f"Tune step {ep+1}/{self.cfg.tune_steps}"
+
+            if hooks.get('post_epoch_hook') is not None:
+                hooks['post_epoch_hook'](self)
+
+            self.state.cur_epoch += 1
+            self.report_epoch(train_loss, valid_loss, status_msg)
+
+            self.state.tune_steps_counter += 1
+            self.save_best()
+            self.save_checkpoint()
+
+        
 
     def collect_sample_shapes (self, sample, prefix):
         # TODO: проверять полное соответствие ключей в collect_shapes
@@ -326,10 +423,10 @@ class TrainBoiler ():
         self.state.early_stop_counter += 1
         return status_msg
             
-    def make_loaders (self, dataset):
+    def make_loaders (self, dataset, force_shuffle=False):
         train_split = int(len(dataset)*self.cfg.train_prop)
 
-        if self.cfg.shuffle:
+        if self.cfg.shuffle or force_shuffle:
             train_ds, valid_ds = torch.utils.data.random_split(
                 dataset, (train_split, len(dataset)-train_split),
                 generator=torch.Generator().manual_seed(42))
@@ -377,11 +474,14 @@ class TrainBoiler ():
         self.state.restart_done = False
         self.state.log = []
         self.state.shapes = dict()
-
-    def init_optimizer (self):
+        self.state.tune_steps_counter = 0
+        
+    def init_optimizer (self, tune=False):
         opt_cfg = deepcopy(self.cfg.optimizer.__dict__)
         opt_name = opt_cfg.pop('name')
         opt = torch.optim.__getattribute__(opt_name)
+        if tune:
+            opt_cfg['lr'] /= 10
         self.optimizer = opt(params=self.net.parameters(),
                              **opt_cfg)
 
