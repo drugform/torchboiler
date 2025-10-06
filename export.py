@@ -27,6 +27,8 @@ class ExportBoiler ():
             return self.to_torchscript(**params)
         elif name == 'onnx':
             return self.to_onnx(**params)
+        else:
+            raise Exception(f'Unknown export engine: {name}')
         
     def to_torchscript (self, trace=False, keep_sample_input=False):
         dict_ = deepcopy(self.dict)

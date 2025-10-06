@@ -18,7 +18,7 @@ from . import collator
 from .version import __version__
 torch = utils.LazyImport("torch")
 tensorboard = utils.LazyImport("torch.utils.tensorboard")        
-        
+
 class TrainBoiler ():
     def __init__ (self, name, config,
                   dataset, net, device,
@@ -33,14 +33,15 @@ class TrainBoiler ():
         
         utils.set_seed(42)
         self.device = device
+        self.cfg = config
+        
         self.net = net
         if start_from_checkpoint is not None:
              self.load_net_from_checkpoint(
                 start_from_checkpoint)
 
         self.net.to(device)
-
-        self.cfg = config
+            
         self.init_info()
         self.init_state()
         self.init_optimizer()
@@ -51,7 +52,7 @@ class TrainBoiler ():
             log_dir=self.workdir)
 
         self.state.start_moment = time.time()
-        #self.train_loop(dataset, hooks)
+
         can_continue = self.main_loop(dataset, hooks)
         if can_continue and self.cfg.tune_steps > 0:
             self.load_checkpoint()
@@ -152,7 +153,7 @@ class TrainBoiler ():
     """
     def main_loop (self, dataset, hooks):
         train_loader, valid_loader = self.make_loaders(dataset)
-
+        
         for ep in range(self.state.cur_epoch,
                         self.cfg.n_epochs):
             if self.state.early_stopped:
@@ -232,7 +233,6 @@ class TrainBoiler ():
             self.state.tune_steps_counter += 1
             self.save_best()
             self.save_checkpoint()
-
         
 
     def collect_sample_shapes (self, sample, prefix):
@@ -272,6 +272,7 @@ class TrainBoiler ():
             w = None
         else:
             w = utils.convert_sample(batch[1], to)
+
         return inpt, w, tgt
             
     def epoch_step (self, ep, loader, valid=False):
@@ -323,7 +324,7 @@ class TrainBoiler ():
         log_msg = (f"{self.name} / train: {train_loss:.4f} /"
                    f" valid: {valid_loss:.4f} /"
                    f" epoch {self.state.cur_epoch} /"
-                   f"{self.device} / elapsed time {elapsed_time}s /"
+                   f" {self.device} / elapsed time {elapsed_time}s /"
                    f" lr: {self.get_rate():.5f} / {status_msg}")
         fprint(log_msg)
         self.state.log.append(log_msg)
@@ -457,6 +458,7 @@ class TrainBoiler ():
             prefetch_factor=1 if self.cfg.n_workers > 0 else None,
             persistent_workers=True if self.cfg.n_workers > 0 else False,
             collate_fn = collate_fn or self.collator)
+
         return train_loader, valid_loader
 
     def init_info (self):
@@ -475,7 +477,7 @@ class TrainBoiler ():
         self.state.log = []
         self.state.shapes = dict()
         self.state.tune_steps_counter = 0
-        
+
     def init_optimizer (self, tune=False):
         opt_cfg = deepcopy(self.cfg.optimizer.__dict__)
         opt_name = opt_cfg.pop('name')

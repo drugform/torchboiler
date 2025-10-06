@@ -7,7 +7,6 @@ import zlib
 from importlib import import_module
 
 class LazyImport () :
-    'thin shell class to wrap modules.  load real module on first access and pass thru'
     def __init__ (self, modname):
         self._modname = modname
         self._mod = None
@@ -28,6 +27,8 @@ class LazyImport () :
         return getattr(self._mod, attr)
 
 torch = LazyImport("torch")
+mpt = LazyImport("torch.multiprocessing")
+mp = LazyImport("multiprocessing")
 tqdm = LazyImport("tqdm")
     
 def fprint (*args):
@@ -169,3 +170,36 @@ def get_sample_shapes (sample, prefix):
                 for k,v in sample.items()}
     else:
         Exception(f'Unsupported batch item type: {name}')
+
+################################################################
+
+
+def run_parallel (fn, args):
+    procs = []
+    for arg in args:
+        p = mp.Process(target=fn, args=(arg,))
+        p.start()
+        procs.append(p)
+    for p in procs:
+        p.join()
+
+def par_map (fn, args):
+    def worker (i, send_end):
+        result = fn(args[i])
+        send_end.send((i, result))
+
+    procs = []
+    pipe_list = []
+    for i in range(len(args)):
+        recv_end, send_end = mp.Pipe(False)
+        p = mp.Process(target=worker, args=(i, send_end))
+        procs.append(p)
+        pipe_list.append(recv_end)
+        p.start()
+
+    for p in procs:
+        p.join()
+
+    ret = [x.recv() for x in pipe_list]
+    return ret
+
