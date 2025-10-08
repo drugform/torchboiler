@@ -38,6 +38,9 @@ class ExportBoiler ():
         if trace:
             torch_input = utils.convert_sample(
                 self.sample_input.copy(), 'cpu')
+            # check if current sample_input can be processed by the net
+            # useful for exporting parts of networks
+            utils.forward(self.net, torch_input)
             model = torch.jit.trace(self.net, torch_input)
         else:
             model = torch.jit.script(self.net)
@@ -55,6 +58,10 @@ class ExportBoiler ():
         self.net.eval()
         sample_input = utils.convert_sample(
             self.sample_input, 'cpu')
+        # check if current sample_input can be processed by the net
+        # useful for exporting parts of networks
+        utils.forward(self.net, sample_input)
+            
         out_file = os.path.splitext(self.model_path)[0]+'.onnx.bin'
 
         artifacts_dir = os.path.dirname(self.model_path)

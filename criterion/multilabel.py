@@ -2,10 +2,6 @@ import numpy as np
 from .. import utils
 
 torch = utils.LazyImport("torch")
-try:
-    cross_entropy_loss = torch.nn.BCEWithLogitsLoss(reduction='none')
-except:
-    pass
 
 def softmax(X, theta = 1.0, axis = None):
     # make X at least 2d
@@ -30,19 +26,19 @@ def softmax(X, theta = 1.0, axis = None):
 class Criterion ():
     def __init__ (self, dataset, device):
         self.device = device
-        class_weights = utils.dataset_attr(
+        self.class_weights = utils.dataset_attr(
             dataset,
             'class_weights',
             ignore_missing=True)
-        self.class_weights = torch.tensor(class_weights).to(device)
+        if self.class_weights is not None:
+            self.class_weights = torch.tensor(class_weights).to(device)
         self.loss = torch.nn.CrossEntropyLoss(
             weight=self.class_weights,
             reduction='none',
             label_smoothing=0.01)
 
     def __call__ (self, output, target,
-                  weights=None,
-                  unscaled=False):
+                  weights=None, **kwargs):
         loss = self.loss(output, target)
         if weights is not None:
             loss = loss*weights

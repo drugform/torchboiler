@@ -288,10 +288,7 @@ class TrainBoiler ():
             for batch in t:
                 self.collect_batch_shapes(ep, batch)
                 inpt,w,y = self.convert_train_batch(batch, self.device)
-
-                if not valid:
-                    self.optimizer.zero_grad(set_to_none=True)
-
+                
                 if self.cfg.recurrent:
                     raise NotImplementedError()
                     self.set_sample_input(*inpt, hidden_state)
@@ -303,14 +300,16 @@ class TrainBoiler ():
 
                 if not valid:
                     loss = self.criterion(yp, y, weights=w)
+                    
                     loss.backward()
                     self.optimizer.step()
-                    
+                    self.optimizer.zero_grad(set_to_none=True)
+
                 report_loss = float(
                     self.criterion(yp, y,
                                    weights=w,
                                    unscaled=True).detach())
-                
+
                 t.update(round(np.sqrt(report_loss), 5))
                 total_loss += report_loss*len(y)
                 sample_counter += len(y)
