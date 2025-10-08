@@ -33,7 +33,7 @@ def mse_loss (output, target, weights=None):
     if weights is not None:
         target = target * weights
         output = output * weights
-    return torch.nn.functional.mse_loss(output, target)
+    return torch.nn.functional.mse_loss(output, target, reduction='none')
 
 def mixed_loss (output, target, regression, weights=None):
         

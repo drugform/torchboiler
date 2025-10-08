@@ -4,6 +4,7 @@ import io
 import numpy as np
 import base64
 import zlib
+import decimal
 from importlib import import_module
 
 class LazyImport () :
@@ -35,6 +36,13 @@ def fprint (*args):
     print(*args)
     sys.stdout.flush()
 
+def round_fp (num, prec):
+    # обходим эпическое округление в питоне
+    return float(round(decimal.Decimal(num), prec))
+
+def round_fmt (num, prec):
+    return round(decimal.Decimal(num), prec)
+    
 
 class Progress ():
     def __init__ (self, iterator, verbose):

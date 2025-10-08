@@ -103,54 +103,6 @@ class TrainBoiler ():
                 cfg[k] = SimpleNamespace(**cfg[k])
         return SimpleNamespace(**cfg)
 
-    """
-    def train_loop (self, dataset, hooks):
-        train_loader, valid_loader = self.make_loaders(dataset)
-
-        for ep in range(self.state.cur_epoch,
-                        self.cfg.n_epochs):
-            if self.state.early_stopped:
-                break
-
-            if os.path.exists(self.stop_file):
-                os.remove(self.stop_file)
-                fprint("Stopped on demand")
-                break
-
-            self.net.train()
-            train_loss = self.epoch_step(ep, train_loader)
-            self.log_writer.add_scalar('Loss/train', train_loss, ep)
-
-            self.net.eval()
-            with torch.no_grad():
-                valid_loss = self.epoch_step(
-                    ep, valid_loader, valid=True)            
-            self.log_writer.add_scalar('Loss/valid', valid_loss, ep)
-                
-            if np.isnan(train_loss) or np.isnan(valid_loss):
-                fprint('Got nan and stopped')
-                raise Exception(f'Training failed (got NaN)')
-
-            if ep == 0:
-                self.format_dynamic_shapes()        
-                fprint(f'Infering dynamic shapes:')
-                fprint(f'Inputs:  {self.info.dynamic_shapes["in"]}')
-                fprint(f'Outputs: {self.info.dynamic_shapes["out"]}')
-            
-            self.scheduler.step(valid_loss)
-            status_msg = self.check_progress(valid_loss)
-            
-            if hooks.get('post_epoch_hook') is not None:
-                hooks['post_epoch_hook'](self)
-
-            self.state.cur_epoch = ep+1
-            self.report_epoch(train_loss, valid_loss, status_msg)
-                
-            self.save_checkpoint()
-
-        open(os.path.join(self.workdir, 'success'),
-             'w').close()
-    """
     def main_loop (self, dataset, hooks):
         train_loader, valid_loader = self.make_loaders(dataset)
         
@@ -165,14 +117,12 @@ class TrainBoiler ():
                 return False
 
             self.net.train()
-            train_loss = self.epoch_step(ep, train_loader)
-            self.log_writer.add_scalar('Loss/train', train_loss, ep)
+            train_loss, train_metrics = self.epoch_step(ep, train_loader)
 
             self.net.eval()
             with torch.no_grad():
-                valid_loss = self.epoch_step(
+                valid_loss, valid_metrics = self.epoch_step(
                     ep, valid_loader, valid=True)            
-            self.log_writer.add_scalar('Loss/valid', valid_loss, ep)
                 
             if np.isnan(train_loss) or np.isnan(valid_loss):
                 fprint('Got nan and stopped')
@@ -191,7 +141,7 @@ class TrainBoiler ():
                 hooks['post_epoch_hook'](self)
 
             self.state.cur_epoch = ep+1
-            self.report_epoch(train_loss, valid_loss, status_msg)
+            self.report_epoch(train_metrics, valid_metrics, status_msg)
                 
             self.save_checkpoint()
         return True
@@ -209,14 +159,12 @@ class TrainBoiler ():
                 break
 
             self.net.train()
-            train_loss = self.epoch_step(ep, train_loader)
-            self.log_writer.add_scalar('Loss/train', train_loss, ep)
+            train_loss, train_metrics = self.epoch_step(ep, train_loader)
 
             self.net.eval()
             with torch.no_grad():
-                valid_loss = self.epoch_step(
+                train_loss, valid_metrics = self.epoch_step(
                     ep, valid_loader, valid=True)            
-            self.log_writer.add_scalar('Loss/valid', valid_loss, ep)
                 
             if np.isnan(train_loss) or np.isnan(valid_loss):
                 fprint('Got nan and stopped')
@@ -228,7 +176,7 @@ class TrainBoiler ():
                 hooks['post_epoch_hook'](self)
 
             self.state.cur_epoch += 1
-            self.report_epoch(train_loss, valid_loss, status_msg)
+            self.report_epoch(train_metrics, valid_metrics, status_msg)
 
             self.state.tune_steps_counter += 1
             self.save_best()
@@ -276,13 +224,15 @@ class TrainBoiler ():
         return inpt, w, tgt
             
     def epoch_step (self, ep, loader, valid=False):
-        total_loss, sample_counter = 0,0
+        sample_counter = 0
+        epoch_metrics = {}
+
         n_repeat = (self.cfg.repeat_valid
                     if valid
                     else self.cfg.repeat_train)
         if self.cfg.recurrent:
             hidden_state = self.net.init_hidden().to(self.device)
-
+            
         for _ in range(n_repeat):
             t = utils.Progress(loader, self.cfg.verbose)
             for batch in t:
@@ -298,33 +248,53 @@ class TrainBoiler ():
                     self.set_sample_input(inpt)
                     yp = utils.forward(self.net, inpt)
 
+                loss, metrics = self.criterion(
+                    yp, y, weights=w)
+
                 if not valid:
-                    loss = self.criterion(yp, y, weights=w)
-                    
                     loss.backward()
                     self.optimizer.step()
-                    self.optimizer.zero_grad(set_to_none=True)
+                self.optimizer.zero_grad(set_to_none=True)
+                
+                for name,value in metrics.items():
+                    if epoch_metrics.get(name) is None:
+                        epoch_metrics[name] = 0
+                    epoch_metrics[name] += value*len(y)
 
-                report_loss = float(
-                    self.criterion(yp, y,
-                                   weights=w,
-                                   unscaled=True).detach())
-
-                t.update(round(np.sqrt(report_loss), 5))
-                total_loss += report_loss*len(y)
+                t.update(utils.round_fmt(float(loss), 4))
                 sample_counter += len(y)
 
+        for name,value in epoch_metrics.items():
+            epoch_metrics[name] = utils.round_fmt(
+                epoch_metrics[name] / sample_counter,
+                3)
             
-        mean_loss = np.sqrt(total_loss / sample_counter)
-        return float(mean_loss)
+        return float(loss.detach()), epoch_metrics
             
-    def report_epoch (self, train_loss, valid_loss, status_msg):        
-        elapsed_time = int(time.time()-self.state.start_moment)
-        log_msg = (f"{self.name} / train: {train_loss:.4f} /"
-                   f" valid: {valid_loss:.4f} /"
-                   f" epoch {self.state.cur_epoch} /"
-                   f" {self.device} / elapsed time {elapsed_time}s /"
-                   f" lr: {self.get_rate():.5f} / {status_msg}")
+    def report_epoch (self, train_metrics, valid_metrics, status_msg):
+        elapsed_time = int(time.time() - self.state.start_moment)
+        ep = self.state.cur_epoch
+        train_msg, valid_msg = [],[]
+        for name,value in train_metrics.items():
+            suffix = 'train'
+            self.log_writer.add_scalar(f'{name}/{suffix}',
+                                       value, ep)
+            train_msg.append(f"{name}={value}")
+        for name,value in valid_metrics.items():
+            suffix = 'valid'
+            self.log_writer.add_scalar(f'{name}/{suffix}',
+                                       value, ep)
+            valid_msg.append(f"{name}={value}")
+
+        train_msg = ", ".join(train_msg)
+        valid_msg = ", ".join(valid_msg)
+        
+        log_msg = (f"{self.name} /"
+                   f" Ep={self.state.cur_epoch} /"
+                   f" Trn: {train_msg} /"
+                   f" Val: {valid_msg} /"
+                   f" {self.device} / {elapsed_time}s /"
+                   f" LR: {self.get_rate():.5f} / {status_msg}")
         fprint(log_msg)
         self.state.log.append(log_msg)
         with open(os.path.join(self.workdir,
