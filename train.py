@@ -163,7 +163,7 @@ class TrainBoiler ():
 
             self.net.eval()
             with torch.no_grad():
-                train_loss, valid_metrics = self.epoch_step(
+                valid_loss, valid_metrics = self.epoch_step(
                     ep, valid_loader, valid=True)            
                 
             if np.isnan(train_loss) or np.isnan(valid_loss):
@@ -224,7 +224,7 @@ class TrainBoiler ():
         return inpt, w, tgt
             
     def epoch_step (self, ep, loader, valid=False):
-        sample_counter = 0
+        total_loss, sample_counter = 0, 0
         epoch_metrics = {}
 
         n_repeat = (self.cfg.repeat_valid
@@ -255,21 +255,22 @@ class TrainBoiler ():
                     loss.backward()
                     self.optimizer.step()
                 self.optimizer.zero_grad(set_to_none=True)
-                
+
+                loss_value = float(loss.detach())
+                total_loss += (loss_value*len(y))
                 for name,value in metrics.items():
                     if epoch_metrics.get(name) is None:
                         epoch_metrics[name] = 0
                     epoch_metrics[name] += value*len(y)
 
-                t.update(utils.round_fmt(float(loss), 4))
+                t.update(utils.round(loss_value, 4))
                 sample_counter += len(y)
 
+        total_loss /= sample_counter
         for name,value in epoch_metrics.items():
-            epoch_metrics[name] = utils.round_fmt(
-                epoch_metrics[name] / sample_counter,
-                3)
+            epoch_metrics[name] = (epoch_metrics[name] / sample_counter)
             
-        return float(loss.detach()), epoch_metrics
+        return total_loss, epoch_metrics
             
     def report_epoch (self, train_metrics, valid_metrics, status_msg):
         elapsed_time = int(time.time() - self.state.start_moment)
@@ -277,24 +278,28 @@ class TrainBoiler ():
         train_msg, valid_msg = [],[]
         for name,value in train_metrics.items():
             suffix = 'train'
-            self.log_writer.add_scalar(f'{name}/{suffix}',
-                                       value, ep)
-            train_msg.append(f"{name}={value}")
+            self.log_writer.add_scalar(
+                f'{name}/{suffix}',
+                value, ep)
+            round_val = utils.round(value, 3, significant=True, with_zeros=True)
+            train_msg.append(f"{name}= {round_val}")
         for name,value in valid_metrics.items():
             suffix = 'valid'
-            self.log_writer.add_scalar(f'{name}/{suffix}',
-                                       value, ep)
-            valid_msg.append(f"{name}={value}")
+            self.log_writer.add_scalar(
+                f'{name}/{suffix}',
+                value, ep)
+            round_val = utils.round(value, 3, significant=True, with_zeros=True)
+            valid_msg.append(f"{name}= {round_val}")
 
         train_msg = ", ".join(train_msg)
         valid_msg = ", ".join(valid_msg)
         
         log_msg = (f"{self.name} /"
-                   f" Ep={self.state.cur_epoch} /"
+                   f" Ep= {self.state.cur_epoch} /"
                    f" Trn: {train_msg} /"
                    f" Val: {valid_msg} /"
                    f" {self.device} / {elapsed_time}s /"
-                   f" LR: {self.get_rate():.5f} / {status_msg}")
+                   f" LR= {self.get_rate():.5f} / {status_msg}")
         fprint(log_msg)
         self.state.log.append(log_msg)
         with open(os.path.join(self.workdir,

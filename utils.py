@@ -5,6 +5,7 @@ import numpy as np
 import base64
 import zlib
 import decimal
+import sigfig
 from importlib import import_module
 
 class LazyImport () :
@@ -36,13 +37,14 @@ def fprint (*args):
     print(*args)
     sys.stdout.flush()
 
-def round_fp (num, prec):
+def round (num, prec, significant=False, with_zeros=False):
     # обходим эпическое округление в питоне
-    return float(round(decimal.Decimal(num), prec))
-
-def round_fmt (num, prec):
-    return round(decimal.Decimal(num), prec)
-    
+    if with_zeros:
+        num = str(num)
+    if significant:
+        return sigfig.round(num, sigfigs=prec)
+    else:
+        return sigfig.round(num, decimals=prec, warn=False)
 
 class Progress ():
     def __init__ (self, iterator, verbose):

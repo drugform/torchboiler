@@ -6,7 +6,8 @@ torch = utils.LazyImport("torch")
 def calc_accuracy (probs, target):
     match = (probs.argmax(dim=2) == target) | (target == 0)
     n_tokens = (target != 0).sum()
-    n_correct_tokens = match.sum()
+    n_pads = (target == 0).sum()
+    n_correct_tokens = match.sum()-n_pads
     n_correct_seqs = (match.sum(dim=1) == match.shape[1]).sum()
     acc_tok = float(n_correct_tokens/n_tokens)
     acc_seq = float(n_correct_seqs/len(target))
@@ -16,7 +17,7 @@ class Criterion ():
     def __init__ (self, dataset, device):
         self.device = device
         self.loss = torch.nn.NLLLoss(
-            ignore_index=0)#, reduction='none')
+            ignore_index=0, reduction='none')
 
     def __call__ (self, output, target,
                   weights=None):

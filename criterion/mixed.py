@@ -6,11 +6,6 @@ from .. import utils
 
 torch = utils.LazyImport("torch")
 tqdm = utils.LazyImport("tqdm")
-
-try:
-    cross_entropy_loss = torch.nn.BCEWithLogitsLoss(reduction='none')
-except:
-    pass
     
 def multiclass_loss (output, target, weights=None):
     nans = torch.isnan(target)
@@ -19,7 +14,7 @@ def multiclass_loss (output, target, weights=None):
     target[nans] = 0
     output[nans] = 0
 
-    res = cross_entropy_loss(output, target)
+    res = binary_cross_entropy_with_logits(output, target, reduction='none')
     res[nans] = 0
     if weights is not None:
         res *= weights
@@ -33,7 +28,7 @@ def mse_loss (output, target, weights=None):
     if weights is not None:
         target = target * weights
         output = output * weights
-    return torch.nn.functional.mse_loss(output, target, reduction='none')
+    return torch.nn.functional.mse_loss(output, target)
 
 def mixed_loss (output, target, regression, weights=None):
         
@@ -69,7 +64,7 @@ def mixed_loss (output, target, regression, weights=None):
             losses.append(multiclass_loss(output[:,i],
                                           target[:,i],
                                           w))
-    return torch.mean(torch.stack(losses))   
+    return torch.mean(torch.stack(losses))
 
 class Criterion ():
     def __init__ (self, dataset, device):
@@ -113,12 +108,19 @@ class Criterion ():
         self.meanY = torch.FloatTensor(self.meanY).to(device)
         self.stdY = torch.FloatTensor(self.stdY).to(device)
         
-    def __call__ (self, output, target, weights=None, unscaled=False):
-        if unscaled:
-            output = self.unscale(output)
-        else:
-            target = self.scale(target)
-        return mixed_loss(output, target, self.regression_flags, weights)
+    def __call__ (self, output, target, weights=None):
+        scaled_target = self.scale(target)
+        unscaled_output = self.unscale(output)
+        torch_loss = mixed_loss(output, scaled_target,
+                                self.regression_flags,
+                                weights)
+        
+        unscaled_loss = mixed_loss(unscaled_output, target,
+                                   self.regression_flags,
+                                   weights).detach()
+        metrics = {'Loss' : float(torch_loss.detach()),
+                   'Unscaled' : float(unscaled_loss.detach())}
+        return torch_loss, metrics
 
     def state_dict (self):
         return {'regression_flags' : self.regression_flags,
