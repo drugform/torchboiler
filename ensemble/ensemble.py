@@ -28,13 +28,15 @@ class EnsembleBoiler ():
         model_file = os.path.join(model_dir,
                                   'model.json')
         with open(model_file, 'r') as fp:
-            data = json.load(fp)
-        ensemble_cfg = data["ensemble"]
+            info = json.load(fp)
+        
+        ensemble_cfg = info["ensemble"]
         ens_type = ensemble_cfg.pop('name')
         Ens = make_import(ens_type)
         ens = Ens.__new__(Ens)
         ens.model_dir = model_dir
         ens.device = device
         ens.ensemble_cfg = ensemble_cfg
+        ens.info = info
         ens.load_()
         return ens

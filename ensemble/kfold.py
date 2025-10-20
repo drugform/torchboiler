@@ -9,6 +9,7 @@ from ..utils import LazyImport, set_seed, run_parallel
 
 torch = LazyImport('torch')
 cuda_available = LazyImport('cuda_available')
+stats = LazyImport('scipy.stats')
 from .. import TrainBoiler, ExecBoiler, ExportBoiler
 
 
@@ -161,7 +162,7 @@ class KFold ():
         
         stds = np.std(sub_preds, ddof=1, axis=0)
         n = len(self.submodels)
-        student_coef = scipy.stats.t.ppf((1 + 0.95) / 2., n-1)
+        student_coef = stats.t.ppf((1 + 0.95) / 2., n-1)
         ci_norm = student_coef * stds / np.sqrt(n)
         return {'value' : pred,
                 'ci' : ci_norm}

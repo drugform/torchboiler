@@ -137,13 +137,14 @@ def load_net_torchscript (ckpt, device):
 def load_net_onnx (ckpt, device, backend=None):
     if backend is None:
         if device == 'cpu':
-            provider = "CPUExecutionProvider"
+            providers = ["CPUExecutionProvider"]
         elif device == 'cuda':
-            provider = "CUDAExecutionProvider"
+            providers = ["CUDAExecutionProvider", "CPUExecutionProvider"]
         else:
             device_id = int(device.split('cuda:')[1])
-            provider = ("CUDAExecutionProvider",
-                        {"device_id" : device_id})
+            providers = [("CUDAExecutionProvider",
+                          {"device_id" : device_id}),
+                         "CPUExecutionProvider"]
     else:
         raise NotImplementedError(
             f'ONNX backend {backend} not supported')
@@ -151,7 +152,7 @@ def load_net_onnx (ckpt, device, backend=None):
     with io.BytesIO(ckpt['net']) as fp:
         net_bytes = fp.read()
         net = onnxruntime.InferenceSession(
-            net_bytes, providers=[provider])
+            net_bytes, providers=providers)
     return net
 
 ### forward
