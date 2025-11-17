@@ -14,7 +14,8 @@ def multiclass_loss (output, target, weights=None):
     target[nans] = 0
     output[nans] = 0
 
-    res = binary_cross_entropy_with_logits(output, target, reduction='none')
+    res = torch.nn.functional.binary_cross_entropy_with_logits(
+        output, target, reduction='none')
     res[nans] = 0
     if weights is not None:
         res *= weights
