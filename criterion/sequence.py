@@ -14,10 +14,11 @@ def calc_accuracy (probs, target):
     return acc_tok, acc_seq
 
 class Criterion ():
-    def __init__ (self, dataset, device):
+    def __init__ (self, dataset, device, ignore_index=0):
         self.device = device
         self.loss = torch.nn.NLLLoss(
-            ignore_index=0, reduction='none')
+            ignore_index=ignore_index,
+            reduction='none')
 
     def __call__ (self, output, target,
                   weights=None):
@@ -33,7 +34,7 @@ class Criterion ():
         acc_tok, acc_seq = calc_accuracy(output, target)
         # __call__ returns batch-averaged loss for backward pass
         # and batch_averaged metrics, including 'Loss'
-        # 'Loss' metric is unscaled loss (if scaling is applicable)
+        # 'Loss' metric is scaled (raw) loss (if scaling is applicable)
         metrics = {'Loss' : float(torch_loss.detach()),
                    'Acc(tok)' : acc_tok,
                    'Acc(seq)' : acc_seq}
