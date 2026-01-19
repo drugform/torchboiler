@@ -5,7 +5,7 @@ import numpy as np
 from copy import deepcopy
 
 from ..version import __version__
-from ..utils import LazyImport, set_seed, run_parallel
+from ..utils import LazyImport, set_seed, run_parallel, fprint
 
 torch = LazyImport('torch')
 cuda_available = LazyImport('cuda_available')
@@ -70,10 +70,12 @@ class KFold ():
         self.tb_cfg.train_prop = (self.n_folds-1)/self.n_folds
         self.tb_cfg.shuffle = False
 
-        if self.ensemble_cfg['parallel']:
+        if not self.ensemble_cfg['parallel']:
+            fprint('Training folds sequentially')
             for fold_id in range(self.n_folds):
                 self.train_fold(fold_id)            
         else:
+            fprint('Training folds in parallel')
             run_parallel(self.train_fold,
                     list(range(self.n_folds)))
                 

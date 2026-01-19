@@ -119,7 +119,7 @@ class Criterion ():
                                    self.regression_flags,
                                    weights).detach()
         metrics = {'Loss' : float(torch_loss.detach()),
-                   'Unscaled' : float(unscaled_loss.detach())}
+                   'Error' : float(unscaled_loss.detach())**0.5}
         return torch_loss, metrics
 
     def state_dict (self):
