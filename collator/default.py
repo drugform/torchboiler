@@ -38,7 +38,7 @@ class Collator ():
     
         pack_shape = [len(batch)] + shapes.max(axis=0).tolist()
         packed = np.zeros(pack_shape,
-                      dtype=batch[0].dtype)
+                          dtype=batch[0].dtype)
         packed.fill(self.pad_value)
         for sample_id,sample in enumerate(batch):
             #slices = [sample_id]+[slice(0,d) for d in sample.shape]

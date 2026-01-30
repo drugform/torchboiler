@@ -35,14 +35,15 @@ class ExportBoiler ():
         self.net.eval()
         dict_['format'] = 'torchscript'
         out_file = os.path.splitext(self.model_path)[0]+'.ts.bin'
-        if trace:
+        with torch.no_grad():
+          if trace:
             torch_input = utils.convert_sample(
                 self.sample_input.copy(), 'cpu')
             # check if current sample_input can be processed by the net
             # useful for exporting parts of networks
             utils.forward(self.net, torch_input)
             model = torch.jit.trace(self.net, torch_input)
-        else:
+          else:
             model = torch.jit.script(self.net)
         
         dict_['net'] = model
@@ -87,6 +88,23 @@ class ExportBoiler ():
             'output_names' : list(dynshapes['out'].keys()),
             'dynamic_axes' : {**dynshapes['in'],
                               **dynshapes['out']}})
+
+        """
+        ## converting dynamic axes to dynamic shapes
+        ## crasy onnx exporting stuff
+        ## easy dynamic axes are deprecated
+        Dim = torch.export.dynamic_shapes.Dim
+        for name,axes in dynshapes['in'].items():
+            dynshapes['in'][name] = {i:Dim.AUTO for i in axes}
+        for name,axes in dynshapes['out'].items():
+            dynshapes['out'][name] = {i:Dim.AUTO for i in axes}
+
+        onnx_args.update({
+            'input_names' : list(dynshapes['in'].keys()),
+            'output_names' : list(dynshapes['out'].keys()),
+            'dynamic_shapes' : (list(dynshapes['in'].values()) +
+                                list(dynshapes['out'].values()))})
+        """
         
         onnx_program = torch.onnx.export(**onnx_args)
         onnx_program.optimize()

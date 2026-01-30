@@ -35,8 +35,11 @@ class TrainBoiler ():
         self.cfg = config
         
         self.net = net
+        if self.cfg.dataparallel:
+            self.net = torch.nn.DataParallel(self.net)
+
         if start_from_checkpoint is not None:
-             self.load_net_from_checkpoint(
+            self.load_net_from_checkpoint(
                 start_from_checkpoint)
 
         self.net.to(device)
@@ -79,7 +82,9 @@ class TrainBoiler ():
                               'factor' : 2./(1+math.sqrt(5)),
                               'patience' : 3,
                               'min_lr' : 3e-5},
+               'dataparallel' : False,
                'n_epochs' : 50,
+               'save_each_epoch' : False,
                'tune_steps' : 0,
                'train_prop' : 0.9,
                'n_workers' : 0,
@@ -90,6 +95,7 @@ class TrainBoiler ():
                'shuffle' : True,
                'recurrent' : False,
                'maximize' : False,
+               'clip_grad' : False,
                'attributes' : {}}
         
         for k,v in args.items():
@@ -142,7 +148,7 @@ class TrainBoiler ():
             self.state.cur_epoch = ep+1
             self.report_epoch(train_metrics, valid_metrics, status_msg)
                 
-            self.save_checkpoint()
+            self.save_checkpoint(str(ep))
         return True
 
     def tune_loop (self, dataset, hooks):
@@ -179,7 +185,7 @@ class TrainBoiler ():
 
             self.state.tune_steps_counter += 1
             self.save_best()
-            self.save_checkpoint()
+            self.save_checkpoint('t'+str(ep))
         
 
     def collect_sample_shapes (self, sample, prefix):
@@ -251,6 +257,9 @@ class TrainBoiler ():
                     yp, y, weights=w)
 
                 if not valid:
+                    if self.cfg.clip_grad:
+                        torch.nn.utils.clip_grad_norm_(
+                            self.net.parameters(), max_norm=1.0)
                     loss.backward()
                     self.optimizer.step()
                 self.optimizer.zero_grad(set_to_none=True)
@@ -495,9 +504,9 @@ class TrainBoiler ():
             self.sample_input = utils.convert_sample(
                 sample_input, 'numpy')                
             
-    def save_checkpoint (self):
+    def save_checkpoint (self, ep):
         ckpt = {'format' : 'torch',
-                'net' : self.net.state_dict(),
+                'net' : self.get_net_module().state_dict(),
                 'optimizer' : self.optimizer.state_dict(),
                 'scheduler' : self.scheduler.state_dict(),
                 'criterion' : self.criterion.state_dict(),
@@ -506,11 +515,15 @@ class TrainBoiler ():
                 'cfg' : self.cfg,
                 'sample_input' : self.sample_input}
         serialize.pack(ckpt, self.checkpoint_file)
+        if self.cfg.save_each_epoch:
+            epoch_savefile = (os.path.splitext(self.checkpoint_file)[0]
+                              + str(ep) + '.bin')
+            serialize.pack(ckpt, epoch_savefile)
 
         
     def save_best (self):
         ckpt = {'format' : 'torch',
-                'net' : self.net.state_dict(),
+                'net' : self.get_net_module().state_dict(),
                 'criterion' : self.criterion.state_dict(),
                 'cfg' : self.cfg,
                 'info' : self.info,
@@ -523,7 +536,7 @@ class TrainBoiler ():
         # TODO: compare given cfg with loaded, print the diff            
         self.state = ckpt['state']
         self.info = ckpt['info']
-        self.net.load_state_dict(ckpt['net'])
+        self.get_net_module().load_state_dict(ckpt['net'])
         self.optimizer.load_state_dict(ckpt['optimizer'])
         self.scheduler.load_state_dict(ckpt['scheduler'])
         self.criterion.load_state_dict(ckpt['criterion'])
@@ -531,4 +544,13 @@ class TrainBoiler ():
 
     def load_net_from_checkpoint (self, checkpoint_file):
         ckpt = serialize.unpack(checkpoint_file)
-        self.net.load_state_dict(ckpt['net'])
+        self.get_net_module().load_state_dict(
+            ckpt['net'],
+            strict=False)
+
+    def get_net_module (self):
+        if self.cfg.dataparallel:
+            return self.net.module
+        else:
+            return self.net
+            

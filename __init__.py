@@ -1,6 +1,6 @@
 import os
 
-from torchboiler.train import TrainBoiler
+from torchboiler.train import TrainBoiler#, DDPTrainBoiler
 from torchboiler.export import ExportBoiler
 from torchboiler.exec import ExecBoiler
 from torchboiler.ensemble.ensemble import EnsembleBoiler

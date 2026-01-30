@@ -42,7 +42,7 @@ def round (num, prec, significant=False, with_zeros=False):
     if with_zeros:
         num = str(num)
     if significant:
-        return sigfig.round(num, sigfigs=prec)
+        return sigfig.round(num, sigfigs=prec, warn=False)
     else:
         return sigfig.round(num, decimals=prec, warn=False)
 
@@ -124,9 +124,9 @@ def convert_item (item, to):
             raise Exception(f'Item type must be torch.Tensor or np.ndarray. Got {name}')
     elif to.startswith('cuda'):
         if name == 'Tensor':
-            return item.to(to)
+            return item.to(to, non_blocking=True)
         elif name == 'ndarray':
-            return torch.from_numpy(item).to(to)
+            return torch.from_numpy(item).to(to, non_blocking=True)
         else:
             raise Exception(f'Item type must be torch.Tensor or np.ndarray. Got {name}')
     else:
