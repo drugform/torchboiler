@@ -77,7 +77,7 @@ class Criterion ():
             Y = []
             ids = np.arange(len(dataset))
             np.random.shuffle(ids)
-            for i in tqdm.tqdm(ids[:1000]):
+            for i in tqdm.tqdm(ids):#[:1000]):
                 item = dataset[i]
                 Y.append([float(e) for e in item[-1]])
 
@@ -99,7 +99,7 @@ class Criterion ():
                 ids = np.arange(len(dataset))
                 rng = np.random.default_rng(42)
                 rng.shuffle(ids)
-                for i in tqdm.tqdm(ids[:1000]):
+                for i in tqdm.tqdm(ids):#[:1000]):
                     item = dataset[i]
                     Y.append([float(e) for e in item[-1]])
 

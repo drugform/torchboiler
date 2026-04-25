@@ -47,8 +47,9 @@ def round (num, prec, significant=False, with_zeros=False):
         return sigfig.round(num, decimals=prec, warn=False)
 
 class Progress ():
-    def __init__ (self, iterator, verbose):
+    def __init__ (self, iterator, verbose, descr=""):
         self.verbose = verbose
+        self.descr = descr
         self.iterator = tqdm.tqdm(iterator) if verbose else iterator
 
     def __iter__ (self):
@@ -58,7 +59,8 @@ class Progress ():
         if self.verbose:
             if type(value) is float:
                 value = round(value, 3)
-            self.iterator.set_description(str(value))
+            self.iterator.set_description(
+                f"{self.descr} {value}")
 
     def manual (self, step):
         if self.verbose:

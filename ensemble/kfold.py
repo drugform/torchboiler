@@ -48,7 +48,8 @@ class KFold ():
     def __init__ (self, name, device,
                   model_root, train_root,
                   dataset, net_builder, net_cfg,
-                  ensemble_cfg, train_cfg, export_cfg):
+                  ensemble_cfg, train_cfg, export_cfg,
+                  hooks={}, caller_globals={}):
         self.name = name
         self.make_config(ensemble_cfg)
         self.train_cfg = train_cfg
@@ -58,6 +59,9 @@ class KFold ():
         self.dataset = dataset
         self.device = device
 
+        self.hooks = hooks
+        self.caller_globals = caller_globals
+        
         self.train_dir = os.path.join(train_root,
                                        name)
         self.model_dir = os.path.join(model_root,
@@ -110,6 +114,9 @@ class KFold ():
             return self.device
 
         n_devices = cuda_available.getCudaDeviceCount()
+        if n_devices == 0:
+            print('ERROR: no cuda devices visible. running on cpu')
+            return 'cpu'
         device_id = fold_id % n_devices
         return f'cuda:{device_id}'
     
@@ -125,7 +132,8 @@ class KFold ():
         subname = f"fold{fold_id}"
         TB = TrainBoiler(subname, self.tb_cfg,
                          data_view, net, device,
-                         root=self.train_dir)
+                         root=self.train_dir,
+                         hooks=self.hooks, caller_globals=self.caller_globals)
 
         best_file = TB.get_result()
         exp = ExportBoiler(best_file, net=net)
@@ -135,29 +143,47 @@ class KFold ():
         shutil.copyfile(fname, dst_fname)
         return dst_fname
 
-    def test_fold (self, fold_id):
-        data_view = FoldView(self.dataset,
-                             fold_id,
-                             self.n_folds,
-                             mode='test_only')
-        submodel = self.submodels[fold_id]
-        pred, tgt = submodel(data_view, with_targets=True)
-        return pred, tgt        
-
-    def test (self):
+    def test (self, batch_size=None):
         self.load_()
         results = []
         for fold_id in range(self.n_folds):
-            results.append(
-                self.test_fold(fold_id))
+            data_view = FoldView(self.dataset,
+                                 fold_id,
+                                 self.n_folds,
+                                 mode='test_only')
+            submodel = self.submodels[fold_id]
+            pred, tgt = submodel(data_view,
+                                 batch_size=batch_size,
+                                 with_targets=True)
+            results.append([pred, tgt])
         return results
+
+    def test_external (self, test_dataset, batch_size=None):
+        self.load_()
+        preds, tgts = [], []
+        for fold_id in range(self.n_folds):
+            submodel = self.submodels[fold_id]
+            pred, tgt = submodel(test_dataset,
+                                 batch_size=batch_size,
+                                 with_targets=True)
+            preds.append(pred)
+            tgts.append(tgt)
+
+        pred = np.mean(preds, axis=0)
+        tgt = tgts[0]
+        # check if the targets are same in each case
+        # they may vary if the dataset is online-generating them
+        # or do list(test_dataset) before that
+        return pred, tgt
     
-    def __call__ (self, dataset, batch_size=None, value_only=True):
+    def __call__ (self, dataset,
+                  batch_size=None,
+                  value_only=True):
         bs = batch_size or self.submodels[0].cfg.batch_size
 
         sub_preds = [submodel(dataset, bs)
                      for submodel in self.submodels]
-            
+
         pred = np.mean(sub_preds, axis=0)
         if value_only:
             return pred

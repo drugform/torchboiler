@@ -74,14 +74,16 @@ class ExecBoiler ():
 
     def forward (self, inpt):
         if 'torch' in self.format:
-            out = forward_torch(self.net, inpt)
+            with torch.no_grad():
+                out = forward_torch(self.net, inpt)
         else:
             out = forward_onnx(self.net, inpt)
         pred = self.criterion.postproc(out)
         return pred
             
     def __call__ (self, dataset,
-                  batch_size=None, with_targets=False):
+                  batch_size=None,
+                  with_targets=False):
         collate_fn = utils.dataset_attr(
             dataset, 'collate_fn', ignore_missing=True)
         data_loader = utils.DataLoader(
@@ -101,7 +103,8 @@ class ExecBoiler ():
 
         preds,targets = [],[]
         if with_targets:
-            for batch in data_loader:
+            from tqdm import tqdm
+            for batch in tqdm(data_loader):
                 inpt = utils.convert_sample(batch[0], self.convert_to)
                 pred = self.forward(inpt)
                 preds += list(pred)
@@ -148,11 +151,19 @@ def load_net_onnx (ckpt, device, backend=None):
     else:
         raise NotImplementedError(
             f'ONNX backend {backend} not supported')
+
+    sess_options = onnxruntime.SessionOptions()
+    sess_options.graph_optimization_level = onnxruntime.GraphOptimizationLevel.ORT_ENABLE_ALL
+    sess_options.add_session_config_entry('session.use_arena_allocator', '1')
+    sess_options.add_session_config_entry('session.arena_extend_strategy', 'kSameAsRequested')
     
     with io.BytesIO(ckpt['net']) as fp:
         net_bytes = fp.read()
         net = onnxruntime.InferenceSession(
-            net_bytes, providers=providers)
+            net_bytes,
+            sess_options=sess_options,
+            providers=providers)
+        
     return net
 
 ### forward

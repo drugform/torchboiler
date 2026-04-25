@@ -5,6 +5,9 @@ def make_import (ens_type):
     if ens_type == "kfold":
         from .kfold import KFold as Ens
         return Ens
+    elif ens_type == 'holdout':
+        from .holdout import HoldOut as Ens
+        return Ens
     else:
         raise Exception(f"Unknown model type: {ens_type}")
 
@@ -13,15 +16,17 @@ class EnsembleBoiler ():
     def train (name, device,
                model_root, train_root,
                dataset, net_builder, net_cfg,
-               ensemble_cfg, train_cfg, export_cfg):
+               ensemble_cfg, train_cfg, export_cfg,
+               hooks={}, caller_globals={}):
 
         ens_type = ensemble_cfg.pop('name')
         Ens = make_import(ens_type)
-        
+
         return Ens(name, device,
                    model_root, train_root,
                    dataset, net_builder, net_cfg,
-                   ensemble_cfg, train_cfg, export_cfg)
+                   ensemble_cfg, train_cfg, export_cfg,
+                   hooks, caller_globals)
 
     @staticmethod
     def load (model_dir, device):

@@ -7,6 +7,7 @@ from . import utils
 from . import serialize
 
 torch = utils.LazyImport("torch")
+onnx = utils.LazyImport("onnx")
 
 class ExportBoiler ():
     def __init__ (self, model_path, net=None):
@@ -70,6 +71,8 @@ class ExportBoiler ():
         onnx_tmp_file = os.path.join(artifacts_dir, f"{tmp_name}.onnx")
         onnx_args = {'model' : self.net,
                      'dynamo' : True,
+                     'optimize' : True,
+                     'opset_version' : 18,
                      'report' : True,
                      'artifacts_dir' : artifacts_dir}
         
@@ -105,11 +108,13 @@ class ExportBoiler ():
             'dynamic_shapes' : (list(dynshapes['in'].values()) +
                                 list(dynshapes['out'].values()))})
         """
-        
+
         onnx_program = torch.onnx.export(**onnx_args)
         onnx_program.optimize()
         onnx_program.save(onnx_tmp_file)
-
+        #from onnxruntime.transformers.optimizer import optimize_model
+        #opt = optimize_model(onnx_tmp_file, num_heads=0, hidden_size=0, opt_level=1)
+        #opt.save_model_to_file(onnx_tmp_file)
         with open(onnx_tmp_file, 'rb') as fp:
             onnx_bytes = fp.read()
 
