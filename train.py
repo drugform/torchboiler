@@ -122,6 +122,8 @@ class TrainBoiler ():
                'maximize' : False,
                'clip_grad' : False,
                'start_from_checkpoint' : None,
+               'bf16' : False,
+               'compile_net' : True,
                'attributes' : {}}
         
         for k,v in args.items():
@@ -143,6 +145,15 @@ class _TrainBoiler ():
                   dataset, net, device,
                   root='/tmp/torchboiler', hooks={},
                   caller_globals={}):
+        ## TODO: вынести инициализации cuda в отдельную функцию,
+        ## либо сделать отдельную функцию проверки валидности конфига 
+        if device.startswith('cuda'):
+            torch.set_float32_matmul_precision("high")
+        if config.bf16 and not device.startswith('cuda'):
+            raise Exception(f"Will not use BF16 training with non-cuda device: {device}")
+        if config.bf16 and not torch.backends.cuda.flash_sdp_enabled():
+            raise Exception(f"Will not use BF16 training with flash attention disabled")
+        
         if config.ddp: 
             self.rank = int(device.split('cuda:')[1])
             self.world_size = torch.cuda.device_count()
@@ -151,7 +162,7 @@ class _TrainBoiler ():
                 'nccl',
                 rank=self.rank,
                 world_size=self.world_size,
-                timeout=datetime.timedelta(minutes=30))
+                timeout=datetime.timedelta(minutes=60))
         else:
             self.rank = 0
         
@@ -165,6 +176,12 @@ class _TrainBoiler ():
         self.net = net
 
         self.net.to(device)
+        if self.cfg.compile_net:
+            print('Compiling network')
+            os.environ['TRITON_CACHE_DIR'] = '/tmp'
+            self.net = torch.compile(
+                self.net, dynamic=True)
+            
         if self.cfg.ddp:
             self.net = torch.nn.parallel.DistributedDataParallel(
                 self.net,
@@ -352,7 +369,7 @@ class _TrainBoiler ():
             for batch in t:
                 self.collect_batch_shapes(ep, batch)
                 inpt,w,y = self.convert_train_batch(batch, self.device)
-                
+
                 if self.cfg.recurrent:
                     raise NotImplementedError()
                     self.set_sample_input(*inpt, hidden_state)
@@ -360,11 +377,19 @@ class _TrainBoiler ():
                     hidden_state = hidden_state.detach()
                 else:
                     self.set_sample_input(inpt)
-                    yp = utils.forward(self.net, inpt)
+                    # TODO make a context wrapper
+                    # or completely rework forward wrapper
+                    if self.cfg.bf16:
+                        with torch.autocast(device_type="cuda",
+                                            dtype=torch.bfloat16):
+                            yp = utils.forward(self.net, inpt)
+                            yp = utils.back_to_fp32(yp)
+                    else:
+                        yp = utils.forward(self.net, inpt)
 
                 loss, metrics = self.criterion(
                     yp, y, weights=w)
-
+                
                 if not valid:
                     if self.cfg.clip_grad:
                         torch.nn.utils.clip_grad_norm_(
@@ -714,14 +739,19 @@ class _TrainBoiler ():
         load_partial_state_dict(
             self.get_net_module(),
             ckpt['net'])
-                                
-
+        
     def get_net_module (self):
+        def unwrap_compiled (mod):
+            if hasattr(mod, '_orig_mod'):
+                return mod._orig_mod
+            else:
+                return mod
+
         if (self.cfg.dataparallel
             or self.cfg.ddp):
-            return self.net.module
+            return unwrap_compiled(self.net.module)
         else:
-            return self.net
+            return unwrap_compiled(self.net)
 
 def load_partial_state_dict (net, ckpt_state_dict):
     net_state_dict = net.state_dict()

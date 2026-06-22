@@ -31,23 +31,35 @@ class ExportBoiler ():
         else:
             raise Exception(f'Unknown export engine: {name}')
         
-    def to_torchscript (self, trace=False, keep_sample_input=False):
+    def to_torchscript (self, trace=False,
+                        keep_sample_input=False,
+                        optimize=True,
+                        float_compression='none'):
         dict_ = deepcopy(self.dict)
         self.net.eval()
         dict_['format'] = 'torchscript'
         out_file = os.path.splitext(self.model_path)[0]+'.ts.bin'
         with torch.no_grad():
-          if trace:
-            torch_input = utils.convert_sample(
-                self.sample_input.copy(), 'cpu')
-            # check if current sample_input can be processed by the net
-            # useful for exporting parts of networks
-            utils.forward(self.net, torch_input)
-            model = torch.jit.trace(self.net, torch_input)
-          else:
-            model = torch.jit.script(self.net)
-        
+            model = self.net
+            
+            if trace:
+                torch_input = utils.convert_sample(
+                    self.sample_input.copy(), 'cpu')
+                # check if current sample_input can be processed by the net
+                # useful for exporting parts of networks
+                utils.forward(model, torch_input)
+                model = torch.jit.trace(model, torch_input)
+            else:
+                model = torch.jit.script(model)
+
+            if optimize:
+                model = torch.jit.optimize_for_inference(model)
+            ### fp16 export
+            if float_compression != 'none':
+                raise NotImplementedError
+            
         dict_['net'] = model
+        dict_['info'].float_compression = float_compression
         if not keep_sample_input:
             del dict_['sample_input']
         serialize.pack(dict_, out_file)
@@ -55,7 +67,10 @@ class ExportBoiler ():
 
     def to_onnx (self,
                  override_dynamic_shapes=None,
-                 keep_sample_input=False):
+                 keep_sample_input=False,
+                 float_compression='none'):
+        assert float_compression in ['none', 'fp16', 'int8'], 'Set `float_compression` to `fp16`, `int8` or `none`'
+        
         dict_ = deepcopy(self.dict)
         self.net.eval()
         sample_input = utils.convert_sample(
@@ -112,14 +127,29 @@ class ExportBoiler ():
         onnx_program = torch.onnx.export(**onnx_args)
         onnx_program.optimize()
         onnx_program.save(onnx_tmp_file)
-        #from onnxruntime.transformers.optimizer import optimize_model
-        #opt = optimize_model(onnx_tmp_file, num_heads=0, hidden_size=0, opt_level=1)
-        #opt.save_model_to_file(onnx_tmp_file)
+
+        ### fp16 export
+        if float_compression == 'fp16':
+            from onnxconverter_common import float16 
+            model = onnx.load(onnx_tmp_file)
+            op_block_list = float16.DEFAULT_OP_BLOCK_LIST + ["Softmax", "LayerNormalization"]
+            model_fp16 = float16.convert_float_to_float16(
+                model,
+                keep_io_types=True,
+                op_block_list=op_block_list,
+                disable_shape_infer=True)
+            onnx.save(model_fp16, onnx_tmp_file)
+
+        ### int8 export
+        if float_compression == 'int8':
+            raise NotImplementedError
+        
         with open(onnx_tmp_file, 'rb') as fp:
             onnx_bytes = fp.read()
 
         dict_['format'] = 'onnx'
         dict_['net'] = onnx_bytes
+        dict_['info'].float_compression = float_compression
         if not keep_sample_input:
             del dict_['sample_input']
         serialize.pack(dict_, out_file)

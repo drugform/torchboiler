@@ -133,8 +133,7 @@ def convert_item (item, to):
             raise Exception(f'Item type must be torch.Tensor or np.ndarray. Got {name}')
     else:
         raise Exception(f'Unknown conversion target: {to}. Expecting `numpy`,  `cpu` (torch), `cuda`, `cuda:X`')
-
-
+    
 def forward (net, inpt):
     name = type(inpt).__name__
     if name in ['Tensor', 'ndarray']:
@@ -146,6 +145,18 @@ def forward (net, inpt):
     else:
         Exception(f'Unsupported network input type: {name}')
 
+def back_to_fp32 (data):
+    name = type(data).__name__
+    if name in ['Tensor']:
+        return data.float()
+    elif name in ['list', 'tuple']:
+        return [d.float() for d in data]
+    elif name in ['dict']:
+        return {k:v.float() for k,v in data.items()}
+    else:
+        Exception(f'Unsupported data type: {name}')
+    
+        
 class DataLoader ():
     def __init__ (self, dataset, batch_size, collate_fn):
         self.dataset = dataset

@@ -133,7 +133,7 @@ def load_net_torch (ckpt, device, net):
 
 def load_net_torchscript (ckpt, device):
     net = ckpt['net']
-    net.to(device)
+    net = net.to(device)
     net.eval()
     return net
 
